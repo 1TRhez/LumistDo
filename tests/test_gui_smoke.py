@@ -1616,56 +1616,6 @@ def test_settings_window_checks_sync_with_header_buttons(app):
         assert win._fixed_check.isChecked() is False
 
 
-def test_eye_masks_text_across_views(app):
-    """隐藏态下主列表、已完成面板、历史窗口统一显示掩码,新建任务同样掩码。"""
-    from lumistdo.task_item import TEXT_MASK
-
-    with tempfile.TemporaryDirectory() as d:
-        root = Path(d)
-        store = TaskStore(root / "tasks.json")
-        store.add("保留的任务")
-        done = store.add("机密任务")
-        store.complete(done.id)
-        w = MainWindow(store, settings_path=root / "settings.json")
-        w.show()
-        app.processEvents()
-
-        item = list(w._active_items.values())[0]
-        assert "保留的任务" in item.label.text().replace("\u200b", "")
-
-        w.set_text_hidden(True)
-        assert item.label.text() == TEXT_MASK
-        w.toggle_completed()
-        app.processEvents()
-        row = w.completed_panel._row_for[done.id]
-        assert row.findChild(QLabel).text() == TEXT_MASK
-
-        # 隐藏态下新建并编辑任务,提交后仍为掩码(编辑框内是真实文本)
-        w.add_task()
-        app.processEvents()
-        new_item = list(w._active_items.values())[-1]
-        new_item.start_edit()
-        new_item.edit.setPlainText("新增机密")
-        new_item._on_editing_finished()
-        app.processEvents()
-        assert new_item.label.text() == TEXT_MASK
-
-        # 历史窗口同步掩码
-        w.open_history()
-        hw = w._history_win
-        texts = [
-            hw.tree.topLevelItem(i).text(0)
-            for i in range(hw.tree.topLevelItemCount())
-        ]
-        assert texts == [TEXT_MASK]
-
-        # 恢复显示
-        w.set_text_hidden(False)
-        assert "保留的任务" in item.label.text().replace("\u200b", "")
-        assert new_item.label.text().replace("\u200b", "") == "新增机密"
-        assert "机密任务" in row.findChild(QLabel).text().replace("\u200b", "")
-
-
 def test_header_menu_contains_quit_and_minimize(app, monkeypatch):
     """顶部栏右键菜单含退出与最小化(替换模块内 QMenu 避免真弹菜单)。"""
     from lumistdo import main_window as mw

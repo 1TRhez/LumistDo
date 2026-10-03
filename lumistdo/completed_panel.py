@@ -8,7 +8,7 @@ from PySide6.QtCore import Signal, Qt
 from PySide6.QtGui import QCursor, QColor, QFont
 
 from .app_settings import Theme
-from .task_item import TEXT_MASK, wrap_for_label
+from .task_item import wrap_for_label
 
 PANEL_QSS = """
 CompletedPanel { background: transparent; }
@@ -163,8 +163,7 @@ class CompletedPanel(QWidget):
         self.setStyleSheet(PANEL_QSS)
         self.setMaximumHeight(160)
         self._row_for = {}
-        self._text_for = {}  # task_id -> 任务原文(隐私模式切换时重新填充行文本)
-        self._text_hidden = False
+        self._text_for = {}  # task_id -> 任务原文
         self._theme = None
 
         v = QVBoxLayout(self)
@@ -203,18 +202,7 @@ class CompletedPanel(QWidget):
             self._row_for[t.id] = row
         self.body.activate()
 
-    def set_text_hidden(self, hidden):
-        """隐私模式:行文本统一换掩码/还原。"""
-        self._text_hidden = hidden
-        for tid, row in self._row_for.items():
-            lbl = row.findChild(QLabel)
-            if lbl is None:
-                continue
-            lbl.setText(self._display_text(self._text_for.get(tid, "")))
-
     def _display_text(self, text):
-        if self._text_hidden and text:
-            return TEXT_MASK
         return wrap_for_label(text if text else "(空任务)")
 
     def content_height(self):

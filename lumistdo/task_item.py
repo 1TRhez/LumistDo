@@ -1,4 +1,4 @@
-﻿"""单个任务项:圆点(点击完成)+ 文字(右键编辑/删除)+ 锁定开锁。"""
+"""单个任务项:圆点(点击完成)+ 文字(右键编辑/删除)+ 锁定开锁。"""
 
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QLabel, QStackedWidget,
@@ -14,8 +14,6 @@ from .app_settings import Theme
 from .i18n import t
 
 ZWSP = "​"  # 零宽空格 U+200B,提供 QLabel 任意字符处的断行点
-
-TEXT_MASK = "•••"  # 隐藏任务内容时的固定掩码:不泄露字数与行数
 
 
 def wrap_for_label(text):
@@ -125,7 +123,6 @@ class TaskItem(QWidget):
         super().__init__()
         self.task = task
         self._locked = False
-        self._text_hidden = False  # 隐私模式:展示层用掩码替换任务文本
         self._hovered = False
         self._fit_pending = False
         self._reset_edit_scroll_pending = False
@@ -183,17 +180,10 @@ class TaskItem(QWidget):
         self.stack.setCurrentIndex(self._LABEL_PAGE)
         lay.addWidget(self.stack, 1)
 
-    # ---- 隐藏文本(隐私模式) ----
+    # ---- 展示层文本 ----
     def _display_text(self):
-        """展示层文本:隐藏态用固定掩码,否则原文+断行零宽空格。"""
-        if self._text_hidden:
-            return TEXT_MASK
+        """展示层文本:原文 + 断行零宽空格。"""
         return wrap_for_label(self.task.text or "")
-
-    def set_text_hidden(self, hidden):
-        self._text_hidden = hidden
-        self.label.setText(self._display_text())
-        self._schedule_fit_height()
 
     # ---- 分隔线 + 悬停 ----
     def paintEvent(self, event):

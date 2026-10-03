@@ -553,7 +553,6 @@ class MainWindow(QWidget):
         self._hide_from_taskbar = self.settings.hide_from_taskbar  # 任务栏不显示图标
         self._taskbar_style_applied = False  # 原生扩展样式当前是否已改
         self._tray = None  # 托盘图标:仅在"不显示在任务栏"打开时创建
-        self._text_hidden = False  # 隐私模式(不持久化,启动默认显示)
         self._completed_expanded = False
         self._collapsed_h = None  # 已完成面板折叠时窗口高度
         self._expanded_panel_h = 0
@@ -868,7 +867,6 @@ class MainWindow(QWidget):
     def _add_item_widget(self, task, focus=True, animate=True, position=None):
         item = TaskItem(task)
         item.set_theme(self.theme)
-        item.set_text_hidden(self._text_hidden)
         item.completed.connect(self.on_complete)
         item.text_changed.connect(self.on_text_changed)
         item.delete_requested.connect(self.on_delete)
@@ -1249,7 +1247,6 @@ class MainWindow(QWidget):
             win.changed.connect(self._reload_task_views)
             self._history_win = win
         win.refresh()
-        win.set_text_hidden(self._text_hidden)
         win.show()
         win.raise_()
         win.activateWindow()
@@ -1851,20 +1848,6 @@ class MainWindow(QWidget):
         self._hide_chrome_now()
         self._settings_dirty = True
         self._settings_save_timer.start()
-
-    # ---- 隐藏任务文本(隐私模式) ----
-    def set_text_hidden(self, hidden):
-        """全视图同步掩码:主列表、已完成面板、历史窗口。"""
-        self._text_hidden = hidden
-        for item in self._active_items.values():
-            item.set_text_hidden(hidden)
-        self.completed_panel.set_text_hidden(hidden)
-        win = getattr(self, "_history_win", None)
-        if win is not None:
-            win.set_text_hidden(hidden)
-
-    def toggle_text_hidden(self):
-        self.set_text_hidden(not self._text_hidden)
 
     def show_header_menu(self, global_pos):
         """上方栏右键菜单:退出/最小化(锁定态不弹,见 HeaderBar)。"""
