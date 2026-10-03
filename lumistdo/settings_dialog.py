@@ -760,7 +760,7 @@ class SettingsWindow(QWidget):
         """把外观、快捷键和功能开关全部恢复出厂默认。
 
         外观 = 颜色/字体/字号/透明度/顶部栏文字/快捷键;
-        功能 = 窗口层级(回普通层级)、固定窗口位置、隐藏清单、缩略模式、
+        功能 = 窗口层级(回普通层级)、固定窗口位置、缩略模式、
                不在任务栏显示图标 —— 一律回到关闭状态。
         唯一不动的是"开机自启动":它写的是注册表 Run 项,属于系统侧设置,
         点一下外观重置就悄悄关掉用户的开机启动不合适。
@@ -787,7 +787,6 @@ class SettingsWindow(QWidget):
         s.always_on_bottom = defaults.always_on_bottom
         s.position_fixed = defaults.position_fixed
         s.compact_mode = defaults.compact_mode
-        s.list_hidden = defaults.list_hidden
         s.hide_from_taskbar = defaults.hide_from_taskbar
 
         # 控件同步(全部 blockSignals,避免中途触发一串 changed)

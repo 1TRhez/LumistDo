@@ -18,13 +18,12 @@ MIN_BG_OPACITY = 3  # 约 1%（内部透明度范围为 0~255）
 MAX_TITLE_LENGTH = 40  # 顶部栏标题最大长度,再长会顶掉右侧图标按钮
 DEFAULT_TITLE_TEXT = "JUST DO IT."  # 顶部栏默认文字;留空则由用户主动清掉
 
-# 顶部栏四个功能按钮的快捷键动作名
-SHORTCUT_ACTIONS = ("z_order", "fixed", "list", "compact")
+# 顶部栏三个功能按钮的快捷键动作名
+SHORTCUT_ACTIONS = ("z_order", "fixed", "compact")
 # 出厂快捷键:在设置窗口的「编辑快捷键」里改,恢复默认设置时回到这一组
 DEFAULT_SHORTCUTS = {
     "z_order": "Ctrl+O",   # 循环切换 置顶 / 普通 / 置底
     "fixed": "Ctrl+K",     # 固定窗口位置(禁止拖动与缩放)
-    "list": "Ctrl+P",      # 显示 / 隐藏整个清单
     "compact": "Ctrl+L",   # 缩略模式
 }
 # 禁止绑定的按键:tab 会打断焦点遍历,方向键/空格/回车留给界面本身,
@@ -179,7 +178,6 @@ class AppSettings:
     hide_from_taskbar: bool = False  # 不在任务栏显示图标:此时常驻托盘图标
     autostart: bool = False  # 开机自启动(HKCU Run),重启后保持
     compact_mode: bool = False  # 缩略模式:只留任务列表,顶栏渐隐,重启后保持
-    list_hidden: bool = False  # 隐藏整个清单:清单与顶栏一起渐隐,重启后保持
     title_text: str = DEFAULT_TITLE_TEXT  # 顶部栏标题,留空则不显示文字
     shortcuts: dict = field(default_factory=lambda: dict(DEFAULT_SHORTCUTS))
     window_x: int | None = None
@@ -232,8 +230,6 @@ class AppSettings:
             s.autostart = data["autostart"]
         if type(data.get("compact_mode")) is bool:
             s.compact_mode = data["compact_mode"]
-        if type(data.get("list_hidden")) is bool:
-            s.list_hidden = data["list_hidden"]
         title = data.get("title_text")
         if isinstance(title, str):
             # 去掉换行等控制字符,再按长度上限截断(与输入框的 maxLength 一致)

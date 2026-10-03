@@ -12,8 +12,8 @@
 - 已完成栏可展开，点圆点把任务恢复回主列表
 - 删除任务进入历史任务，可批量恢复或永久删除
 - 外观可自定义（预设/颜色/字体/字号/透明度/顶部栏文字）
-- 顶部栏四按钮：图钉（层级三态）→ 固定窗口位置 → 隐藏清单 → 缩略模式
-- 快捷键可改键（`Ctrl+N` 新建固定不可改，其余四项在快捷键窗口里改）
+- 顶部栏三按钮：图钉（层级三态）→ 固定窗口位置 → 缩略模式
+- 快捷键可改键（`Ctrl+N` 新建固定不可改，其余三项在快捷键窗口里改）
 - 可选：不在任务栏显示图标（用托盘图标找回窗口）、开机自启动
 - 中英文双语，改语言后重启生效
 - 数据持久化到 `%APPDATA%\LumistDo` 下的 JSON，关掉重开任务还在（不过夜刷新）
@@ -98,8 +98,8 @@ python -m PyInstaller lumistdo.spec --noconfirm
 - **圆点不抢焦点**：`TaskItem.dot` 设 `Qt.NoFocus`，点完成时不会触发文本框的 `editingFinished`，避免完成与保存逻辑冲突。
 - **半透明 + 圆角**：窗口 `WA_TranslucentBackground` + 容器 `rgba` 背景，文字保持不透明清晰；圆角外区域透明。
 - **拖动/缩放**：无边框窗口重写鼠标事件，顶栏空白处拖动、边缘缩放；`position_fixed` 打开后 `_edge()` 返回 None 且不再拖动。
-- **渐隐优先级**：隐藏清单 > 缩略模式 > 普通。`_chrome_wanted()` 是唯一判定入口；`_reveal_until` 让"点窗口临时唤回 3 秒"能压过隐藏清单。
-- **清单位置绝不能用 `setVisible(False)` 隐藏**：`QScrollArea` 不可见后不再重算几何，内部 widget 会卡在 `sizeHint` 宽度（638）把任务行撑出窗口；渐隐统一走 `setMaximumHeight(0)` 折叠（`_set_widget_shown`）。
+- **渐隐**：只有缩略模式会让顶栏渐隐。`_chrome_wanted()` 是唯一判定入口；`_reveal_until` 让"点窗口临时唤回 3 秒"在没有鼠标贴边时也能点到图标。
+- **清单区绝不能用 `setVisible(False)` 隐藏**：`QScrollArea` 不可见后不再重算几何，内部 widget 会卡在 `sizeHint` 宽度（638）把任务行撑出窗口；要折叠就走 `setMaximumHeight`（`_set_widget_shown`）。
 - **透明度特效必须丢引用**：Qt 的 `widget.setGraphicsEffect(None)` 会**直接 delete** 那个 `QGraphicsOpacityEffect`，缓存的引用立刻变成野指针（`Internal C++ object already deleted`）。每次摘掉特效后都要 `_forget_effect(name)` 清缓存，下次重建。
 - **任务栏图标重登记要推迟**：`_apply_taskbar_style()` 里的 `hide()`+`show()` 若同步执行，会被 `showEvent` 排的同一个回调再触发，把 Qt 的可见性状态搞乱（表现为"窗口再也显示不出来"）。所以走 `QTimer.singleShot(0, self._reregister_for_taskbar)`。
 - **自绘图标按钮要设 `accessibleName`**：否则 UI 自动化/无障碍工具读到空名字，按名字点不到（`_reset_btn` 就踩过）。

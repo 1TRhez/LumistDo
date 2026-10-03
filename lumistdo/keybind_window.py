@@ -1,4 +1,4 @@
-"""快捷键设置窗口:给顶部栏四个功能按钮绑定快捷键。
+"""快捷键设置窗口:给顶部栏三个功能按钮绑定快捷键。
 
 外观与设置窗口同一套(无系统边框、圆角、羽化边缘、右上角自绘关闭按钮),
 输入框直接吃按键事件,所以支持 Ctrl+O 这类组合键,不用手打字符串。
@@ -205,7 +205,6 @@ class KeybindWindow(QWidget):
         self._labels = {
             "z_order": t("keys.action_z_order"),
             "fixed": t("keys.action_fixed"),
-            "list": t("keys.action_list"),
             "compact": t("keys.action_compact"),
         }
 

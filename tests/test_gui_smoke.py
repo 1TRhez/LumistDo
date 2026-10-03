@@ -324,8 +324,8 @@ def test_compact_mode_fades_header_instead_of_hiding_buttons(app):
             assert btn.parent() is w.header
 
 
-def test_hiding_list_also_hides_header(app):
-    """隐藏清单的优先级高于缩略模式:整块隐去,鼠标贴顶也不露出来。"""
+def test_compact_mode_hides_header_only(app):
+    """缩略模式只隐去顶栏;鼠标贴到顶部那一带时顶栏渐显回来,清单一直在。"""
     with tempfile.TemporaryDirectory() as d:
         root = Path(d)
         store = TaskStore(root / "tasks.json")
@@ -335,16 +335,15 @@ def test_hiding_list_also_hides_header(app):
 
         w._cursor_near_top = lambda: False       # offscreen 下鼠标恒在原点,必须替掉
         w.set_compact_mode(True, animate=False)
-        w.set_list_hidden(True, animate=False)
         app.processEvents()
         assert w._header_opacity == 0.0
-        assert w._scroll_opacity == 0.0
+        assert w._scroll_opacity == 1.0          # 清单不受缩略模式影响
 
-        w._cursor_near_top = lambda: True        # 鼠标贴到顶部:清单隐藏优先级更高,都不回来
+        w._cursor_near_top = lambda: True        # 鼠标贴到顶部:顶栏回来
         w._refresh_chrome(animate=False)
         app.processEvents()
-        assert w._header_opacity == 0.0
-        assert w._scroll_opacity == 0.0
+        assert w._header_opacity == 1.0
+        assert w._scroll_opacity == 1.0
 
 
 def test_macos_style_header_structure(app):
@@ -517,9 +516,8 @@ def test_settings_reset_appearance_restores_defaults(app, monkeypatch):
         win._layer_radios["top"].setChecked(True)
         win._fixed_check.setChecked(True)
         win._taskbar_check.setChecked(True)
-        w.settings.shortcuts = {"z_order": "Ctrl+9", "fixed": "", "list": "", "compact": ""}
+        w.settings.shortcuts = {"z_order": "Ctrl+9", "fixed": "", "compact": ""}
         w.set_compact_mode(True, animate=False)
-        w.set_list_hidden(True, animate=False)
         app.processEvents()
         assert w.settings.title_text == "乱改的标题"
         assert w.settings.always_on_top is True
@@ -546,11 +544,9 @@ def test_settings_reset_appearance_restores_defaults(app, monkeypatch):
         assert w.settings.always_on_bottom is False
         assert w.settings.position_fixed is False
         assert w.settings.compact_mode is False
-        assert w.settings.list_hidden is False
         assert w.settings.hide_from_taskbar is False
-        # 界面状态也一起收掉了:装饰回来、清单可点
+        # 界面状态也一起收掉了:顶栏回来、清单可点
         assert w._compact is False
-        assert w._list_hidden is False
         assert w._header_opacity == 1.0
         assert w.header.isVisible() is True
         w.close()
@@ -568,11 +564,11 @@ def test_reset_confirm_text_describes_feature_switches_too():
         assert "开机自启动" in text or "Start with Windows" in text, (
             f"{lang}: 没说明开机自启动不受影响"
         )
-        assert "隐藏清单" in text or "hide list" in text, (
-            f"{lang}: 没说明隐藏清单会被关掉"
-        )
         assert "缩略" in text or "compact" in text, (
             f"{lang}: 没说明缩略模式会被关掉"
+        )
+        assert "固定窗口位置" in text or "fix position" in text, (
+            f"{lang}: 没说明固定窗口位置会被关掉"
         )
     assert i18n._TRANSLATIONS["zh"]["settings.reset_done"] == "已恢复默认设置。"
 
@@ -1078,13 +1074,12 @@ def test_keyboard_shortcuts_create_and_toggle_compact(app):
         app.processEvents()
         assert len(store.active_tasks()) == 1
 
-        # 绑定存在 settings 里,且四个动作都有默认值(恢复默认设置时回到这一组)
+        # 绑定存在 settings 里,且三个动作都有默认值(恢复默认设置时回到这一组)
         saved = AppSettings.load(root / "settings.json")
         assert saved.shortcuts["compact"] == "Ctrl+L"
         assert saved.shortcuts["z_order"] == "Ctrl+O"
         assert saved.shortcuts["fixed"] == "Ctrl+K"
-        assert saved.shortcuts["list"] == "Ctrl+P"
-        assert set(w._action_shortcuts) == {"z_order", "fixed", "list", "compact"}
+        assert set(w._action_shortcuts) == {"z_order", "fixed", "compact"}
 
 
 def test_keybind_window_edits_and_applies_shortcut(app):
@@ -1099,32 +1094,31 @@ def test_keybind_window_edits_and_applies_shortcut(app):
         app.processEvents()
         kw = w._keybind_win
 
-        edit = kw._edits["list"]
-        assert edit.sequence() == "Ctrl+P"
+        edit = kw._edits["fixed"]
+        assert edit.sequence() == "Ctrl+K"
         QTest.keyClick(edit, Qt.Key_J, Qt.ControlModifier)
         app.processEvents()
         assert edit.sequence() == "Ctrl+J"
-        assert w.settings.shortcuts["list"] == "Ctrl+J"
-        assert w._action_shortcuts["list"].key().toString() == "Ctrl+J"
+        assert w.settings.shortcuts["fixed"] == "Ctrl+J"
+        assert w._action_shortcuts["fixed"].key().toString() == "Ctrl+J"
 
-        # 新键位真的能触发「隐藏清单」
+        # 新键位真的能触发「固定窗口位置」
         # (快捷键窗口在最上层、是当前活动窗口,不关掉它主窗口的 QShortcut 不会响应)
         kw.hide()
         w.activateWindow()
         app.processEvents()
-        w._cursor_near_top = lambda: False
         QTest.keyClick(w, Qt.Key_J, Qt.ControlModifier)
         app.processEvents()
-        assert w._list_hidden is True
+        assert w._position_fixed is True
 
         # 退格清空 = 这一项不绑定(空串会被保留,不是回退到默认值)
-        edit = kw._edits["list"]
+        edit = kw._edits["fixed"]
         QTest.keyClick(edit, Qt.Key_Backspace)
         app.processEvents()
         assert edit.sequence() == ""
-        assert w.settings.shortcuts["list"] == ""
+        assert w.settings.shortcuts["fixed"] == ""
         assert edit.text() == t("keys.cleared")
-        assert "list" not in w._action_shortcuts     # 清空后不再注册这个快捷键
+        assert "fixed" not in w._action_shortcuts     # 清空后不再注册这个快捷键
         w.close()
 
 
@@ -1150,7 +1144,7 @@ def test_keybind_window_steals_duplicate_binding(app):
         assert kw._note.isVisible() is True
         assert t("keys.action_fixed") in kw._note.text()
 
-        # 恢复出厂绑定按钮把四项都还原
+        # 恢复出厂绑定按钮把三项都还原
         kw._restore_defaults()
         app.processEvents()
         assert w.settings.shortcuts == DEFAULT_SHORTCUTS
@@ -1158,8 +1152,8 @@ def test_keybind_window_steals_duplicate_binding(app):
         w.close()
 
 
-def test_compact_mode_and_list_hidden_persist(app):
-    """缩略模式与「隐藏整个清单」都要跨重启保持。"""
+def test_compact_mode_persists(app):
+    """缩略模式要跨重启保持。"""
     with tempfile.TemporaryDirectory() as d:
         root = Path(d)
         store = TaskStore(root / "tasks.json")
@@ -1168,23 +1162,19 @@ def test_compact_mode_and_list_hidden_persist(app):
         app.processEvents()
         w._cursor_near_top = lambda: False
         w.set_compact_mode(True, animate=False)
-        w.set_list_hidden(True, animate=False)
         w._flush_settings_save()
 
         saved = AppSettings.load(root / "settings.json")
         assert saved.compact_mode is True
-        assert saved.list_hidden is True
 
         reopened = MainWindow(store, settings_path=root / "settings.json")
         reopened._cursor_near_top = lambda: False
         reopened.show()
         app.processEvents()
         assert reopened._compact is True
-        assert reopened._list_hidden is True
-        # 启动时立刻按持久化状态收起装饰,不等鼠标移动
+        # 启动时立刻按持久化状态收起顶栏,不等鼠标移动
         assert reopened._header_opacity == 0.0
-        assert reopened._scroll_opacity == 0.0
-        assert reopened.header.eye_btn._hidden is True
+        assert reopened._scroll_opacity == 1.0
         reopened.close()
         w.close()
 
@@ -2202,11 +2192,8 @@ def test_settings_saved_when_window_hidden_to_tray(app, monkeypatch):
     assert loaded.window_width == 333, "隐藏时没保存窗口尺寸"
 
 
-def test_clicking_hidden_list_window_reveals_chrome_temporarily(app):
-    """隐藏整个清单后点窗口能临时唤回顶栏,几秒后自己收回去。
-
-    这是 bug 修复:隐藏清单后鼠标贴顶也永不唤回,用户再也看不到顶栏按钮。
-    """
+def test_clicking_compact_window_reveals_header_temporarily(app):
+    """缩略模式下点窗口能临时唤回顶栏,几秒后自己收回去。"""
     with tempfile.TemporaryDirectory() as d:
         root = Path(d)
         store = TaskStore(root / "tasks.json")
@@ -2215,9 +2202,10 @@ def test_clicking_hidden_list_window_reveals_chrome_temporarily(app):
         w.show()
         app.processEvents()
 
-        w.set_list_hidden(True, animate=False)
+        w._cursor_near_top = lambda: False
+        w.set_compact_mode(True, animate=False)
         app.processEvents()
-        assert w._header_opacity == 0.0, "隐藏清单后顶栏没有渐隐"
+        assert w._header_opacity == 0.0, "缩略模式后顶栏没有渐隐"
         assert w._chrome_wanted() is False
 
         w.mousePressEvent(_mouse(QEvent.MouseButtonPress, QPoint(150, 300), w, app))
@@ -2233,8 +2221,8 @@ def test_clicking_hidden_list_window_reveals_chrome_temporarily(app):
         w.close()
 
 
-def test_list_hidden_window_keeps_sane_layout(app):
-    """隐藏清单期间窗口宽度不能被滚动区撑开(曾出现 scroll 宽度 640 > 窗口 320)。"""
+def test_compact_window_keeps_sane_layout(app):
+    """缩略模式下窗口宽度不能被滚动区撑开(曾出现 scroll 宽度 640 > 窗口 320)。"""
     with tempfile.TemporaryDirectory() as d:
         root = Path(d)
         store = TaskStore(root / "tasks.json")
@@ -2242,11 +2230,11 @@ def test_list_hidden_window_keeps_sane_layout(app):
         w.show()
         app.processEvents()
 
-        w.set_list_hidden(True, animate=False)
+        w._cursor_near_top = lambda: False
+        w.set_compact_mode(True, animate=False)
         app.processEvents()
 
         assert w.scroll.isVisible(), "不能把滚动区整体 setVisible(False),否则宽度会卡住"
-        assert w.scroll.maximumHeight() == 0, "隐藏清单应靠高度归零而不是隐藏控件"
         assert w.scroll.width() <= w.width(), "滚动区比窗口还宽"
         w.close()
 
@@ -2317,8 +2305,8 @@ def test_settings_and_history_windows_stay_above_pinned_bottom(app):
         w.close()
 
 
-def test_reveal_and_expire_chrome_can_repeat_without_crashing(app):
-    """隐藏清单后反复"点窗口唤回 → 到点隐去"不能再崩。
+def test_reveal_and_expire_header_can_repeat_without_crashing(app):
+    """缩略模式下反复"点窗口唤回 → 到点隐去"不能再崩。
 
     踩过的坑:Qt 的 setGraphicsEffect(None) 会把那个 QGraphicsOpacityEffect
     **删掉**,而代码还把它缓存在 self._header_effect 里;第二次动画直接摸
@@ -2340,7 +2328,8 @@ def test_reveal_and_expire_chrome_can_repeat_without_crashing(app):
         w = _window(root, store)
         w.show()
         app.processEvents()
-        w.set_list_hidden(True, animate=False)
+        w._cursor_near_top = lambda: False
+        w.set_compact_mode(True, animate=False)
         app.processEvents()
         assert w._header_opacity == 0.0
 
@@ -2360,9 +2349,8 @@ def test_reveal_and_expire_chrome_can_repeat_without_crashing(app):
             assert w._header_effect is None, (
                 f"第 {round_no} 次隐去后还留着已删除的特效引用"
             )
-        assert w.settings.list_hidden is True, "唤回不应改动设置本身"
-        assert w._list_hidden is True, "唤回只该临时露顶栏,清单仍按设置隐藏"
-        assert w.scroll.maximumHeight() == 0, "清单高度仍应收成 0"
+        assert w.settings.compact_mode is True, "唤回不应改动设置本身"
+        assert w._compact is True, "唤回只该临时露顶栏,缩略模式仍开着"
         w.close()
 
 

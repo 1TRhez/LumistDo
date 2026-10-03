@@ -435,71 +435,10 @@ class FixedButton(QWidget):
             self.toggled.emit(not self._fixed)
 
 
-class EyeButton(QWidget):
-    """眼睛按钮:一键隐藏/显示任务文本。隐藏态加斜线并高亮。"""
-    toggled = Signal(bool)
-
-    def __init__(self, hidden=False, parent=None):
-        super().__init__(parent)
-        self._hidden = hidden
-        self._shortcut = ""
-        self._color = QColor("#8e9099")
-        self._accent = QColor("#5ea0ff")
-        self._sync_tooltip()
-
-    def set_theme(self, theme: Theme):
-        self._color = theme.icon_color
-        self._accent = theme.accent_color
-        self.update()
-
-    def set_hidden(self, hidden):
-        self._hidden = hidden
-        self._sync_tooltip()
-        self.update()
-
-    def set_shortcut(self, text):
-        """由快捷键设置窗口回填,显示在 tooltip 里。"""
-        self._shortcut = f" ({text})" if text else ""
-        self._sync_tooltip()
-
-    def _sync_tooltip(self):
-        key = "main.eye_tooltip_on" if self._hidden else "main.eye_tooltip_off"
-        self.setToolTip(t(key, sc=self._shortcut))
-
-    def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        color = self._accent if self._hidden else self._color
-        pen = QPen(color, 1.7)
-        pen.setCapStyle(Qt.RoundCap)
-        pen.setJoinStyle(Qt.RoundJoin)
-        p.setPen(pen)
-        p.setBrush(Qt.NoBrush)
-        # 眼眶:上下两段弧线围成眼形
-        eye = QPainterPath()
-        eye.moveTo(6.2, 14.0)
-        eye.quadTo(14.0, 6.8, 21.8, 14.0)
-        eye.quadTo(14.0, 21.2, 6.2, 14.0)
-        p.drawPath(eye)
-        # 眼珠
-        p.setPen(Qt.NoPen)
-        p.setBrush(color)
-        p.drawEllipse(QPointF(14.0, 14.0), 2.3, 2.3)
-        p.setBrush(Qt.NoBrush)
-        p.setPen(pen)
-        if self._hidden:
-            # 斜线划过眼睛表示"已隐藏"
-            p.drawLine(QPointF(7.0, 20.5), QPointF(21.0, 7.5))
-        p.end()
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.toggled.emit(not self._hidden)
-
 class HeaderBar(QFrame):
-    """上方栏:标题、锁头、空白拖动区域及右键菜单。"""
+    """上方栏:标题、图标按钮、空白拖动区域及右键菜单。"""
 
-    clicked = Signal()  # 顶栏被点击:清单隐藏时用来把界面临时唤回来
+    clicked = Signal()  # 顶栏被点击:缩略模式下用来把界面临时唤回来
 
     def __init__(self, window):
         super().__init__()
@@ -508,7 +447,7 @@ class HeaderBar(QFrame):
         hl = QHBoxLayout(self)
         hl.setContentsMargins(16, 6, 12, 6)
         hl.setSpacing(7)
-        # 固定高度:锁头隐藏(锁定+鼠标移出)时顶部栏不塌缩
+        # 固定高度:顶栏渐隐时布局不塌缩
         self.setFixedHeight(6 + 28 + 6)
 
         self.title_label = QLabel()
@@ -521,7 +460,7 @@ class HeaderBar(QFrame):
         self._raw_title = t("main.title_default")
         self.set_title(self._raw_title)
 
-        # 顺序:图钉(层级三态) → 固定(钉住位置) → 眼睛(隐藏整个清单) → 缩略模式
+        # 顺序:图钉(层级三态) → 固定(钉住位置) → 缩略模式
         self.pin_btn = PinButton(parent=self)
         self.pin_btn.setFixedSize(28, 28)
         self.pin_btn.setCursor(QCursor(Qt.PointingHandCursor))
@@ -533,12 +472,6 @@ class HeaderBar(QFrame):
         self.fixed_btn.setCursor(QCursor(Qt.PointingHandCursor))
         self.fixed_btn.toggled.connect(lambda f: window.set_position_fixed(f))
         hl.addWidget(self.fixed_btn)
-
-        self.eye_btn = EyeButton(parent=self)
-        self.eye_btn.setFixedSize(28, 28)
-        self.eye_btn.setCursor(QCursor(Qt.PointingHandCursor))
-        self.eye_btn.toggled.connect(lambda h: window.set_list_hidden(h))
-        hl.addWidget(self.eye_btn)
 
         self.compact_btn = CompactButton(parent=self)
         self.compact_btn.setFixedSize(28, 28)
@@ -604,11 +537,9 @@ class MainWindow(QWidget):
         self._active_items = {}  # task_id -> TaskItem
         self._locked = False  # 缩略模式的镜像:任务行据此禁止编辑与拖拽排序
         self._compact = self.settings.compact_mode     # 缩略模式:只留任务列表
-        self._list_hidden = self.settings.list_hidden  # 隐藏整个清单(优先级更高)
-        self._chrome_shown = True     # 鼠标当前是否在窗口内(顶栏/清单据此显隐)
+        self._chrome_shown = True     # 鼠标当前是否在窗口内(顶栏据此显隐)
         self._chrome_target = None    # 顶栏目标显隐状态(None=还没定过,首次调用必须应用)
-        self._list_target = None      # 清单目标显隐状态,同上
-        # 隐藏清单后点窗口临时唤回装饰的截止时刻(monotonic 秒),0 表示没在临时显示
+        # 缩略模式下点窗口临时唤回顶栏的截止时刻(monotonic 秒),0 表示没在临时显示
         self._reveal_until = 0.0
         self._header_opacity = 1.0
         self._scroll_opacity = 1.0
@@ -637,7 +568,7 @@ class MainWindow(QWidget):
         self._settings_save_timer.setSingleShot(True)
         self._settings_save_timer.setInterval(180)
         self._settings_save_timer.timeout.connect(self._flush_settings_save)
-        # 隐藏清单后临时唤回装饰的收尾定时器(到点自动重新隐去)
+        # 缩略模式下临时唤回顶栏的收尾定时器(到点自动重新隐去)
         self._reveal_timer = QTimer(self)
         self._reveal_timer.setSingleShot(True)
         self._reveal_timer.timeout.connect(self._on_reveal_timeout)
@@ -675,16 +606,15 @@ class MainWindow(QWidget):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
 
-        # ---- 标题栏(标题 + 右侧四个图标;空白处可拖动窗口,右键退出/最小化)----
+        # ---- 标题栏(标题 + 右侧三个图标;空白处可拖动窗口,右键退出/最小化)----
         self.header = HeaderBar(self)
-        # 图钉三态/固定/眼睛/缩略模式初始状态跟随持久化设置
+        # 图钉三态/固定/缩略模式初始状态跟随持久化设置
         self._sync_pin_btn()
         self.header.fixed_btn.set_fixed(self.settings.position_fixed)
-        self.header.eye_btn.set_hidden(self.settings.list_hidden)
         self.header.compact_btn.set_compact(self.settings.compact_mode)
         # 顶部栏文字:设置里没写就用界面语言的默认文案
         self.header.set_title(self.settings.title_text)
-        # 隐藏清单后点顶栏 = 把装饰临时唤回来(否则界面上一个按钮都不剩)
+        # 缩略模式下点顶栏 = 把图标临时唤回来
         self.header.clicked.connect(self._reveal_chrome)
         v.addWidget(self.header)
 
@@ -779,7 +709,7 @@ class MainWindow(QWidget):
 
         self._new_shortcut = QShortcut(QKeySequence("Ctrl+N"), self)
         self._new_shortcut.activated.connect(self.add_task)
-        # 顶栏四个按钮的快捷键来自设置(可在「编辑快捷键」窗口里改)
+        # 顶栏三个按钮的快捷键来自设置(可在「编辑快捷键」窗口里改)
         self._action_shortcuts = {}
         self._apply_shortcuts()
 
@@ -787,8 +717,8 @@ class MainWindow(QWidget):
         self._install_edge_watch(self.container)
         self._edge_watch_ready = True
 
-        # 启动时把持久化的缩略模式/清单隐藏立刻生效(不带动画,避免开场闪一下)
-        if self._compact or self._list_hidden:
+        # 启动时把持久化的缩略模式立刻生效(不带动画,避免开场闪一下)
+        if self._compact:
             self._refresh_chrome(animate=False)
 
     # ---- 边缘缩放:让 container 及子控件把鼠标事件转给窗口做边缘检测 ----
@@ -805,7 +735,7 @@ class MainWindow(QWidget):
     def eventFilter(self, obj, event):
         et = event.type()
         # 鼠标在窗口内移动:顶栏渐隐时要能按"靠近顶部"渐显回来
-        if et == QEvent.MouseMove and (self._compact or self._list_hidden):
+        if et == QEvent.MouseMove and self._compact:
             self._refresh_chrome()
         # 容器收到 Enter/Leave = 鼠标进出窗口内容区(所有子控件都被过滤,不会误判)
         if obj is self.container and et in (QEvent.Enter, QEvent.Leave):
@@ -1385,10 +1315,9 @@ class MainWindow(QWidget):
         self.setFont(QFont(t.font_family, 10))
         # 锁头
         self.header.compact_btn.set_theme(t)
-        # 图钉、眼睛与固定
+        # 图钉与固定
         self.header.pin_btn.set_theme(t)
         self.header.fixed_btn.set_theme(t)
-        self.header.eye_btn.set_theme(t)
         # 齿轮图标
         self.settings_btn.setIcon(QIcon(self._gear_pixmap()))
         # 顶部栏文字(换语言/改文案后要重排省略);空字符串=不显示文字
@@ -1406,13 +1335,13 @@ class MainWindow(QWidget):
         # 边缘虚化重画
         self.update()
 
-    # ---- 缩略模式 / 隐藏整个清单(都靠鼠标进出决定显隐) ----
+    # ---- 缩略模式(靠鼠标靠近顶栏决定顶栏显隐) ----
     def set_compact_mode(self, compact, animate=True):
         """缩略模式:只留任务列表(顶栏整体渐隐、隐藏已完成面板、底部栏与加号)。
 
         禁止编辑与拖拽排序;**允许缩放窗口** —— 只有「固定窗口位置」才禁止拖动与缩放。
         顶栏不是把按钮逐个藏起来,而是整块淡出(见 _animate_chrome),所以
-        顶部栏文字与四个图标永远同进同出。
+        顶部栏文字与另外三个图标永远同进同出。
         """
         compact = bool(compact)
         if compact == self._compact:
@@ -1448,13 +1377,12 @@ class MainWindow(QWidget):
     def toggle_compact_mode(self):
         self.set_compact_mode(not self._compact)
 
-    # ---- 快捷键:顶栏四个按钮的绑定可在「编辑快捷键」窗口里改 ----
+    # ---- 快捷键:顶栏三个按钮的绑定可在「编辑快捷键」窗口里改 ----
     def _shortcut_actions(self):
         """动作名 -> 触发函数(顺序即设置窗口里的显示顺序)。"""
         return {
             "z_order": self._cycle_z_order_shortcut,
             "fixed": self.toggle_position_fixed,
-            "list": self.toggle_list_hidden,
             "compact": self.toggle_compact_mode,
         }
 
@@ -1468,7 +1396,7 @@ class MainWindow(QWidget):
             self.set_always_on_bottom(False)
 
     def _apply_shortcuts(self):
-        """按 settings.shortcuts 重建四个 QShortcut(空串=不绑定)。"""
+        """按 settings.shortcuts 重建三个 QShortcut(空串=不绑定)。"""
         for shortcut in self._action_shortcuts.values():
             shortcut.setParent(None)
             shortcut.deleteLater()
@@ -1484,10 +1412,9 @@ class MainWindow(QWidget):
         self._sync_shortcut_tooltips()
 
     def _sync_shortcut_tooltips(self):
-        """把绑定显示在四个按钮的 tooltip 里。"""
+        """把绑定显示在三个按钮的 tooltip 里。"""
         for name, btn in (
             ("z_order", self.header.pin_btn),
-            ("list", self.header.eye_btn),
             ("compact", self.header.compact_btn),
             ("fixed", self.header.fixed_btn),
         ):
@@ -1500,49 +1427,26 @@ class MainWindow(QWidget):
         self._settings_dirty = True
         self._settings_save_timer.start()
 
-    def set_list_hidden(self, hidden, animate=True):
-        """隐藏整个清单:把列表 + 顶部栏收成一块可拖动/缩放的空白。
-
-        优先级高于缩略模式 —— 清单要隐藏时,顶部栏也必须一起隐藏。
-        """
-        hidden = bool(hidden)
-        if hidden == self._list_hidden:
-            return
-        self._list_hidden = hidden
-        self.settings.list_hidden = hidden
-        self.header.eye_btn.set_hidden(hidden)
-        self._refresh_chrome(animate=animate)
-        self._settings_dirty = True
-        self._settings_save_timer.start()
-
-    def toggle_list_hidden(self):
-        self.set_list_hidden(not self._list_hidden)
-
     def _chrome_wanted(self):
-        """鼠标是否希望看到窗口装饰(隐藏清单的优先级高于缩略模式)。
+        """鼠标是否希望看到顶部栏(缩略模式下由鼠标位置决定)。
 
-        隐藏清单时整块(顶栏 + 清单)一律隐去,鼠标贴到顶部也不会露出来 ——
-        用户要求"隐藏整个清单的优先级大于隐藏顶栏";
-        缩略模式只隐去顶栏,鼠标贴到窗口顶部那一带时顶栏渐显回来。
-
-        例外:点一下窗口,装饰临时回来 3 秒(_reveal_chrome)。
-        否则隐藏清单后界面上一个按钮都不剩,用户没有任何入口能恢复。
+        普通模式顶栏一直在;缩略模式只隐去顶栏,鼠标贴到窗口顶部那一带时渐显回来。
+        例外:缩略模式下点一下窗口,顶栏临时回来 3 秒(_reveal_chrome),
+        这样鼠标没贴边时也有入口点图标。
         """
         if time.monotonic() < self._reveal_until:
             return True
-        if self._list_hidden:
-            return False
         if not self._compact:
             return True
         return self._cursor_near_top()
 
     def _reveal_chrome(self):
-        """点击窗口时把装饰临时唤回几秒。
+        """缩略模式下点击窗口时把顶栏临时唤回几秒。
 
-        不改 settings.list_hidden / compact_mode:这只是给用户一个能点到
-        眼睛或缩略按钮的窗口,到时间后自动按原设置隐去。
+        不改 settings.compact_mode:这只是给用户一个能点到图标的窗口,
+        到时间后自动按原设置隐去。
         """
-        if not (self._list_hidden or self._compact):
+        if not self._compact:
             return
         self._reveal_until = time.monotonic() + self.REVEAL_SECONDS
         self._refresh_chrome()
@@ -1557,11 +1461,10 @@ class MainWindow(QWidget):
             self._reveal_timer.start(int(self.REVEAL_SECONDS * 1000) + 60)
 
     def _hide_chrome_now(self):
-        """按当前设置立刻同步装饰显隐(重置用:不带动画,免得和"全部关掉"抢时间)。"""
+        """按当前设置立刻同步顶栏显隐(重置用:不带动画,免得和"全部关掉"抢时间)。"""
         self._reveal_until = 0.0
         self._reveal_timer.stop()
         self._chrome_target = None
-        self._list_target = None
         self._refresh_chrome(animate=False)
 
     def _cursor_near_top(self):
@@ -1575,30 +1478,23 @@ class MainWindow(QWidget):
         return rect.contains(QCursor.pos())
 
     def _refresh_chrome(self, animate=True):
-        """按鼠标位置刷新顶部栏/清单的显隐。
+        """按鼠标位置刷新顶部栏的显隐。
 
-        缩略模式只隐藏顶部栏,清单照常显示;
-        隐藏清单时清单一律不显示,鼠标贴顶最多把顶部栏唤回来。
         目标状态没变就直接返回,免得鼠标一动就重启动画(闪烁)。
         """
         show = self._chrome_wanted()
-        list_show = show or not self._list_hidden
-        if show == self._chrome_target and list_show == self._list_target:
+        if show == self._chrome_target:
             return
         self._chrome_target = show
-        self._list_target = list_show
-        self._animate_chrome(show, animate=animate, list_show=list_show)
+        self._animate_chrome(show, animate=animate)
 
-    def _animate_chrome(self, show, animate=True, list_show=None):
-        """淡入淡出顶部栏与清单(自身淡出,就能露出圆角外框)。"""
-        if list_show is None:
-            list_show = show or not self._list_hidden
+    def _animate_chrome(self, show, animate=True):
+        """淡入淡出顶部栏(自身淡出,就能露出圆角外框)。
+
+        清单区不参与渐隐:顶栏淡出后它就是窗口最上面那块。
+        """
         self._animate_widget(
             "header", self.header, show,
-            duration=190 if animate else 0,
-        )
-        self._animate_widget(
-            "scroll", self.scroll, list_show,
             duration=190 if animate else 0,
         )
 
@@ -1678,7 +1574,7 @@ class MainWindow(QWidget):
     def _header_icon_btns(self):
         """顶部栏右侧图标按钮组(与顶栏同进同出,不再单独显隐)。"""
         return (
-            self.header.pin_btn, self.header.eye_btn,
+            self.header.pin_btn,
             self.header.compact_btn, self.header.fixed_btn,
         )
 
@@ -1934,7 +1830,7 @@ class MainWindow(QWidget):
         """设置窗口点了「恢复默认设置」后,把主窗口的功能状态也收回默认。
 
         外观与快捷键由设置窗口自己写回;这里负责只有主窗口知道的界面状态:
-        缩略模式、隐藏整个清单、固定窗口位置、窗口层级(置顶/置底)、
+        缩略模式、固定窗口位置、窗口层级(置顶/置底)、
         不在任务栏显示图标(含托盘图标)。
         「开机自启动」不在这里动 —— 那是注册表里的系统侧设置。
         """
@@ -1942,8 +1838,6 @@ class MainWindow(QWidget):
         self._reveal_timer.stop()
         if self._compact:
             self.set_compact_mode(False, animate=False)
-        if self._list_hidden:
-            self.set_list_hidden(False, animate=False)
         if self._position_fixed:
             self.set_position_fixed(False)
         if self._always_on_bottom:
@@ -1962,7 +1856,6 @@ class MainWindow(QWidget):
     def set_text_hidden(self, hidden):
         """全视图同步掩码:主列表、已完成面板、历史窗口。"""
         self._text_hidden = hidden
-        self.header.eye_btn.set_hidden(hidden)
         for item in self._active_items.values():
             item.set_text_hidden(hidden)
         self.completed_panel.set_text_hidden(hidden)
