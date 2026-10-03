@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.lumistdo/
+
+# 虚拟环境
+.venv/
+venv/
+
+# IDE / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# PyInstaller / Inno Setup 产物
+build/
+dist/
+release/
+
+# 本地调试脚本与备份（不该进仓库）
+probe_*.py
+restore_tasks.py
+*.bak
+*.orig

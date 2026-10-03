@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LumistDo 览明贴 —— 桌面任务便签</title>
+<meta name="description" content="LumistDo(览明贴)：半透明无边框的 Windows 桌面任务便签，一键安装、无登录、数据全在本地。">
+<link rel="icon" href="img/icon.png">
+<style>
+  :root {
+    --bg: #16201a;
+    --panel: #1e2a22;
+    --text: #e4f0e8;
+    --muted: #8fa89a;
+    --accent: #5ea0ff;
+    --line: rgba(228, 240, 232, 0.12);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Microsoft YaHei UI", "Segoe UI Variable", "Segoe UI", sans-serif;
+    line-height: 1.7;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 24px; }
+
+  /* ---- 顶部 ---- */
+  header { padding: 72px 0 48px; text-align: center; }
+  .icon { width: 96px; height: 96px; border-radius: 22px; box-shadow: 0 8px 32px rgba(0,0,0,.4); }
+  h1 { font-size: 42px; margin-top: 20px; letter-spacing: 1px; }
+  .tagline { color: var(--muted); font-size: 17px; margin-top: 8px; }
+  .actions { margin-top: 28px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    display: inline-block; padding: 13px 34px; border-radius: 10px;
+    font-size: 16px; text-decoration: none; transition: transform .15s, box-shadow .15s;
+  }
+  .btn:hover { transform: translateY(-2px); }
+  .btn-primary { background: var(--accent); color: #fff; box-shadow: 0 4px 18px rgba(94,160,255,.35); }
+  .btn-ghost { border: 1px solid var(--line); color: var(--text); }
+  .version { color: var(--muted); font-size: 13px; margin-top: 14px; }
+
+  section { padding: 44px 0; border-top: 1px solid var(--line); }
+  h2 { font-size: 24px; margin-bottom: 22px; }
+
+  /* ---- 特性 ---- */
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .feature { background: var(--panel); border-radius: 12px; padding: 18px 20px; }
+  .feature b { display: block; margin-bottom: 4px; }
+  .feature span { color: var(--muted); font-size: 14px; }
+
+  /* ---- 截图(两列小图) ---- */
+  .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+  figure { background: var(--panel); border-radius: 14px; padding: 14px; margin: 0; }
+  figure img { width: 100%; border-radius: 8px; display: block; }
+  figcaption { color: var(--muted); font-size: 13px; text-align: center; margin-top: 10px; }
+
+  /* ---- 使用说明 / FAQ ---- */
+  ol.steps { padding-left: 22px; }
+  ol.steps li { margin-bottom: 10px; }
+  .faq dt { font-weight: bold; margin-top: 18px; }
+  .faq dd { color: var(--muted); margin-left: 0; }
+  code {
+    background: rgba(228,240,232,.08); padding: 2px 7px;
+    border-radius: 5px; font-size: 14px;
+  }
+
+  footer { padding: 40px 0 56px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; text-align: center; }
+  footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <img class="icon" src="img/icon.png" alt="LumistDo 览明贴 图标">
+    <h1>LumistDo <span class="tagline">览明贴</span></h1>
+    <p class="tagline">半透明无边框的桌面任务便签，让待办事项安静地留在桌面上。</p>
+    <div class="actions">
+      <a class="btn btn-primary" id="downloadBtn" href="https://github.com/1TRhez/LumistDo/releases/latest">下载 Windows 版</a>
+      <a class="btn btn-ghost" href="https://github.com/1TRhez/LumistDo">GitHub 仓库</a>
+    </div>
+    <p class="version">Windows 10 / 11 · 一键安装 · 无需注册登录 · 完全本地运行</p>
+  </header>
+
+  <section>
+    <h2>界面预览</h2>
+    <div class="shots">
+      <figure>
+        <img src="img/compact.png" alt="缩略模式">
+        <figcaption>缩略模式只留任务列表，鼠标靠近顶栏才露出图标</figcaption>
+      </figure>
+      <figure>
+        <img src="img/hidden.png" alt="隐藏清单">
+        <figcaption>隐藏清单后只剩一块半透明底板，点一下窗口临时唤回</figcaption>
+      </figure>
+      <figure>
+        <img src="img/settings.png" alt="设置界面">
+        <figcaption>设置界面，可自定义背景色、透明度、字体等外观</figcaption>
+      </figure>
+      <figure>
+        <img src="img/keybinds.png" alt="编辑快捷键">
+        <figcaption>快捷键可逐项改键，点一下输入框再按组合键即可</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section>
+    <h2>安装使用</h2>
+    <ol class="steps">
+      <li>点击上方「下载 Windows 版」，下载 <code>LumistDo-Setup-v*.exe</code> 安装包。</li>
+      <li>双击安装包，按向导一步步安装（仅当前用户安装，不需要管理员权限）。因软件没有购买代码签名证书，首次运行若提示“Windows 已保护你的电脑”，可点击「更多信息」→「仍要运行」。源码全部公开在 GitHub 仓库，可自行审查或从源码运行。</li>
+      <li>安装完成后可从开始菜单或桌面快捷方式启动。</li>
+      <li>任务数据保存在 <code>%APPDATA%\LumistDo</code>，重装、更新都不会丢失。</li>
+      <li>卸载走 Windows「设置 → 应用」或双击运行安装文件夹内的 <code>unins000.exe</code>，卸载时可选是否删除数据。</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>功能亮点</h2>
+    <div class="features">
+      <div class="feature"><b>🪟 半透明悬浮桌面</b><span>无边框窗口透出壁纸，任务与桌面融为一体，透明度可自由调节。</span></div>
+      <div class="feature"><b>📦 一键安装</b><span>标准安装向导，无需 Python 环境；数据与程序分离，更新、重装不丢数据。</span></div>
+      <div class="feature"><b>🎨 主题预设</b><span>深空、暖棕、森林、海军蓝、葡萄紫、纯白六套预设，也可自定义颜色、字体与透明度。</span></div>
+      <div class="feature"><b>📌 三态窗口层级</b><span>图钉一键循环：普通层级 → 最上层 → 最底层，随手决定它压着谁。</span></div>
+      <div class="feature"><b>👁️ 隐藏清单 / 缩略模式</b><span>整块清单渐隐，只留一块半透明底板；缩略模式只留任务列表，鼠标贴顶才露出按钮。</span></div>
+      <div class="feature"><b>⌨️ 可改快捷键</b><span>四组快捷键逐项自定义，撞键自动让位，退格清空即不绑定。</span></div>
+      <div class="feature"><b>🕘 历史任务</b><span>完成与删除的任务进入历史记录，可随时恢复或彻底清除。</span></div>
+      <div class="feature"><b>🌏 中英双语</b><span>设置中一键切换中文 / English，重启即生效。</span></div>
+      <div class="feature"><b>🛡️ 隐私优先</b><span>无账号、无云端、无遥测、不联网，所有数据只保存在你自己的电脑上。</span></div>
+    </div>
+  </section>
+
+  <footer>
+    LumistDo 览明贴 · 开源免费(MIT) · <a href="https://github.com/1TRhez/LumistDo">GitHub</a> · <a href="https://github.com/1TRhez/LumistDo/releases">全部版本</a> · <a href="https://github.com/1TRhez/LumistDo/blob/master/LICENSE">MIT License</a>
+  </footer>
+
+</div>
+
+<script>
+  // 下载按钮自动指向最新 Release 的安装包附件。
+  // 只能走 api.github.com:它允许跨域(返回 CORS 头),而 github.com 网页
+  // 会被浏览器 CORS 拦截无法读取重定向终点。
+  fetch("https://api.github.com/repos/1TRhez/LumistDo/releases/latest")
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var asset = (data.assets || []).find(function (a) { return a.name.indexOf("-Setup-") !== -1 && a.name.endsWith(".exe"); });
+      if (asset) document.getElementById("downloadBtn").href = asset.browser_download_url;
+    })
+    .catch(function () { /* API 不通或限流时保留发布页链接 */ });
+</script>
+</body>
+</html>
