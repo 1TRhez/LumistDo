@@ -11,7 +11,7 @@
 - 点任务左侧小圆点 → 任务从桌面消失并标记完成 → 进入底部「已完成」栏
 - 已完成栏可展开，点圆点把任务恢复回主列表
 - 删除任务进入历史任务，可批量恢复或永久删除
-- 外观可自定义（6 套预设 + 独立的「自定义配色」窗口：单独调背景色/字体颜色）
+- 外观可自定义（6 套预设 + 真·毛玻璃 + 独立的「自定义配色」窗口：单独调背景色/字体颜色）
 - 顶部栏三按钮：图钉（层级三态）→ 固定窗口位置 → 缩略模式
 - 快捷键可改键（`Ctrl+N` 新建固定不可改，其余三项在快捷键窗口里改）
 - 可选：不在任务栏显示图标（用托盘图标找回窗口）、开机自启动
@@ -51,6 +51,7 @@ LumistDo-src/
 │   ├── __init__.py          # APP_NAME / APP_NAME_ZH / APP_VERSION
 │   ├── app_paths.py         # 数据/日志路径解析 + 旧数据迁移
 │   ├── app_settings.py      # 设置模型、预设、快捷键解析
+│   ├── blur_behind.py       # 真·毛玻璃（DWM blur-behind，未公开 API，失败静默）
 │   ├── json_io.py           # 原子写入
 │   ├── task_store.py        # 数据层：Task / TaskStore
 │   ├── task_item.py         # UI：单条任务（圆点 + 编辑框，高度自适应）
@@ -98,6 +99,7 @@ python -m PyInstaller lumistdo.spec --noconfirm
 - **完成动作的边界**：空任务被点完成时直接删除，不进已完成栏（避免空任务堆积）。
 - **圆点不抢焦点**：`TaskItem.dot` 设 `Qt.NoFocus`，点完成时不会触发文本框的 `editingFinished`，避免完成与保存逻辑冲突。
 - **半透明 + 圆角**：窗口 `WA_TranslucentBackground` + 容器 `rgba` 背景，文字保持不透明清晰；圆角外区域透明。
+- **毛玻璃只有一种做法真的有效**：要"糊掉背后"必须调未公开的 `SetWindowCompositionAttribute` + `ACCENT_ENABLE_BLURBEHIND`(3)（`blur_behind.py`）。实测这台 Win11 上 `ACCENT_ENABLE_ACRYLICBLURBEHIND`(4) 与 `ACCENT_ENABLE_HOSTBACKDROP`(5) 都**返回成功但毫无效果**，已废弃的 `DwmEnableBlurBehindWindow` 同样不生效——判断有没有效只能看画面，不能看返回值。`GradientColor` 是 ABGR（低字节 alpha），不是 ARGB。窗口标志重建（最小化还原、改任务栏样式）会丢掉效果，所以 `showEvent` / `changeEvent` 里都要补一次 `_apply_blur_behind()`。模糊是 DWM 合成的，`PrintWindow` / `grab()` 都抓不到，验收必须整屏抓图。
 - **拖动/缩放**：无边框窗口重写鼠标事件，顶栏空白处拖动、边缘缩放；`position_fixed` 打开后 `_edge()` 返回 None 且不再拖动。
 - **渐隐**：只有缩略模式会让顶栏渐隐。`_chrome_wanted()` 是唯一判定入口；`_reveal_until` 让"点窗口临时唤回 3 秒"在没有鼠标贴边时也能点到图标。
 - **清单区绝不能用 `setVisible(False)` 隐藏**：`QScrollArea` 不可见后不再重算几何，内部 widget 会卡在 `sizeHint` 宽度（638）把任务行撑出窗口；要折叠就走 `setMaximumHeight`（`_set_widget_shown`）。

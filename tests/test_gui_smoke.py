@@ -589,6 +589,9 @@ def test_preset_row_highlights_current_and_marks_custom(app):
         assert w.settings.appearance_preset == "毛玻璃"
         assert w.settings.bg_color == preset["bg"]
         assert w.settings.bg_opacity == preset["opacity"], "毛玻璃要真的更透明"
+        assert preset["blur"] is True, "毛玻璃预设要顺带打开背后的模糊"
+        assert w.settings.blur_behind is True
+        assert win._blur_check.isChecked() is True
         assert win._preset_btns["毛玻璃"].property("selected") == "true"
         assert win._preset_btns[DEFAULT_PRESET].property("selected") == "false"
 
@@ -601,6 +604,55 @@ def test_preset_row_highlights_current_and_marks_custom(app):
         assert win._custom_btn.property("selected") == "true"
         assert win._preset_btns["毛玻璃"].property("selected") == "false"
         w.close()
+
+
+def test_blur_behind_toggle_drives_the_window_effect(app, monkeypatch):
+    """毛玻璃开关:勾上要把真·模糊下发给窗口,换实底预设要关掉,重启后还记得。"""
+    from lumistdo import blur_behind
+
+    calls = []
+    monkeypatch.setattr(
+        blur_behind, "set_blur_behind",
+        lambda hwnd, enabled, tint=(0, 0, 0, 0): calls.append(enabled) or True,
+    )
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        settings_path = root / "settings.json"
+        store = TaskStore(root / "tasks.json")
+        w = MainWindow(store, settings_path=settings_path)
+        w.show()
+        app.processEvents()
+        assert w.settings.blur_behind is False, "默认不该开毛玻璃"
+
+        w.open_settings()
+        app.processEvents()
+        win = w._settings_win
+        calls.clear()
+        win._blur_check.setChecked(True)
+        app.processEvents()
+        assert w.settings.blur_behind is True
+        assert True in calls, "勾上毛玻璃没有把模糊下发给窗口"
+        # 只是开关一件效果,配色没动,高亮不该跳到"自定义配色"
+        assert w.settings.appearance_preset == DEFAULT_PRESET
+
+        # 换一套实底预设:连带把模糊关掉(实底开着也看不出来,留着只会误导)
+        calls.clear()
+        win._preset_btns["素白"].click()
+        app.processEvents()
+        assert w.settings.blur_behind is False
+        assert win._blur_check.isChecked() is False
+        assert False in calls, "关掉毛玻璃没有通知窗口撤销模糊"
+
+        # 再开一次并落盘,重启后要记得
+        win._blur_check.setChecked(True)
+        app.processEvents()
+        w._flush_settings_save()
+        w.close()
+        w2 = MainWindow(TaskStore(root / "tasks.json"), settings_path=settings_path)
+        w2.show()
+        app.processEvents()
+        assert w2.settings.blur_behind is True, "毛玻璃开关没存进设置文件"
+        w2.close()
 
 
 def test_custom_color_window_edits_colors_and_flags_custom(app):

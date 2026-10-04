@@ -172,17 +172,20 @@ QLineEdit:focus {
 }
 """
 
-# 预设主题:每套包含 bg_color, text_color, font_family, font_size, bg_opacity。
+# 预设主题:每套包含 bg_color, text_color, font_family, font_size, bg_opacity, blur。
 # name 同时是持久化用的标识(settings.appearance_preset),不要跟着界面语言改。
+# blur = 真·毛玻璃(让 Windows 把背后的桌面内容模糊掉,见 lumistdo/blur_behind.py);
+# 只有毛玻璃预设默认开,其余预设都是实底,开了也看不出来。
 PRESETS = [
-    {"name": "深空",   "bg": "#25262c", "text": "#e9e9ef", "font": "Segoe UI Variable", "size": 13, "opacity": 240},
-    {"name": "暖夜",   "bg": "#2c2420", "text": "#f0e6dc", "font": "Microsoft YaHei UI", "size": 13, "opacity": 235},
-    # 毛玻璃:背景透明度压到 ~69%(176/255),壁纸隐约透出来才有玻璃感;
-    # 上浅下深的层次由 Theme 派生的渐变两端提供(见 app_settings.container_qss)
-    {"name": "毛玻璃", "bg": "#333a47", "text": "#f2f4f8", "font": "Segoe UI Variable", "size": 13, "opacity": 176},
-    {"name": "海洋",   "bg": "#1a2432", "text": "#dce8f4", "font": "Segoe UI Variable", "size": 13, "opacity": 240},
-    {"name": "薰衣草", "bg": "#282430", "text": "#ece6f4", "font": "Microsoft YaHei UI", "size": 13, "opacity": 236},
-    {"name": "素白",   "bg": "#f2f2f4", "text": "#2c2c32", "font": "Microsoft YaHei UI", "size": 13, "opacity": 248},
+    {"name": "深空",   "bg": "#25262c", "text": "#e9e9ef", "font": "Segoe UI Variable", "size": 13, "opacity": 240, "blur": False},
+    {"name": "暖夜",   "bg": "#2c2420", "text": "#f0e6dc", "font": "Microsoft YaHei UI", "size": 13, "opacity": 235, "blur": False},
+    # 毛玻璃:背景几乎全透明(alpha 22/255 ≈ 9%),靠 blur_behind 把背后的桌面糊掉。
+    # 不是"半透明能看见壁纸",而是"像透过磨砂玻璃看"——背后是糊的,只剩色块。
+    # 那点 alpha 用来托住右上角图标与顶栏文字的对比度,全 0 会让浅色壁纸上的白字看不清。
+    {"name": "毛玻璃", "bg": "#333a47", "text": "#f4f6fa", "font": "Segoe UI Variable", "size": 13, "opacity": 22, "blur": True},
+    {"name": "海洋",   "bg": "#1a2432", "text": "#dce8f4", "font": "Segoe UI Variable", "size": 13, "opacity": 240, "blur": False},
+    {"name": "薰衣草", "bg": "#282430", "text": "#ece6f4", "font": "Microsoft YaHei UI", "size": 13, "opacity": 236, "blur": False},
+    {"name": "素白",   "bg": "#f2f2f4", "text": "#2c2c32", "font": "Microsoft YaHei UI", "size": 13, "opacity": 248, "blur": False},
 ]
 
 
@@ -715,6 +718,13 @@ class SettingsWindow(QWidget):
         op_row.addWidget(self._op_label)
         root.addLayout(op_row)
 
+        # ---- 真·毛玻璃(把背后的桌面内容模糊掉,需要背景足够透明才看得出) ----
+        self._blur_check = QCheckBox(t("settings.blur_behind"))
+        self._blur_check.setCursor(QCursor(Qt.PointingHandCursor))
+        self._blur_check.setChecked(self._settings.blur_behind)
+        self._blur_check.toggled.connect(self._on_blur_toggled)
+        root.addWidget(self._blur_check)
+
         # ---- 顶部栏文字(外观的一部分,留空则不显示文字) ----
         root.addWidget(self._row_label(t("settings.title_text")))
         self._title_edit = QLineEdit(self._settings.title_text)
@@ -892,6 +902,11 @@ class SettingsWindow(QWidget):
         self.taskbar_changed.emit(checked)
         self.changed.emit()
 
+    def _on_blur_toggled(self, checked):
+        self._settings.blur_behind = checked
+        # 只是开关一件效果,颜色没变,不该把预设高亮改成"自定义配色"
+        self._emit_changed()
+
     def set_taskbar_check(self, hidden):
         """主窗口改动任务栏开关后回同步勾选(仅主窗口调用)。"""
         if self._taskbar_check.isChecked() == hidden:
@@ -951,6 +966,7 @@ class SettingsWindow(QWidget):
         s.position_fixed = defaults.position_fixed
         s.compact_mode = defaults.compact_mode
         s.hide_from_taskbar = defaults.hide_from_taskbar
+        s.blur_behind = defaults.blur_behind
         # 预设高亮一并回到默认「深空」,否则色块变了高亮还停在自定义上
         s.appearance_preset = defaults.appearance_preset
 
@@ -1133,10 +1149,20 @@ class SettingsWindow(QWidget):
         self._size_spin.blockSignals(False)
         self._op_slider.blockSignals(False)
         self._op_label.setText(f"{int(preset['opacity'] / 255 * 100)}%")
+        # 毛玻璃是一整套外观的一部分:选预设时把模糊开关也一起设好,
+        # 否则换了配色还得自己再去勾一下(实底预设开着 blur 也看不出来)。
+        self._set_blur_check(bool(preset.get("blur", False)))
         self._settings.appearance_preset = preset["name"]
         self._refresh_preset_selection()
         self.refresh_custom_colors()
         self._emit_changed()
+
+    def _set_blur_check(self, checked):
+        """同步毛玻璃勾选框与设置,信号要挡住,免得又走一次"标记自定义配色"。"""
+        self._blur_check.blockSignals(True)
+        self._blur_check.setChecked(checked)
+        self._blur_check.blockSignals(False)
+        self._settings.blur_behind = checked
 
     def _refresh_preset_selection(self):
         """把当前预设对应的圆点亮(自定义配色时亮最右边那个虚线圆)。"""

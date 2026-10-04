@@ -226,6 +226,9 @@ class AppSettings:
     hide_from_taskbar: bool = False  # 不在任务栏显示图标:此时常驻托盘图标
     autostart: bool = False  # 开机自启动(HKCU Run),重启后保持
     compact_mode: bool = False  # 缩略模式:只留任务列表,顶栏渐隐,重启后保持
+    # 真·毛玻璃:让 Windows 合成器把窗口背后的桌面内容模糊掉。
+    # 需要背景足够透明才看得出来;由预设「毛玻璃」默认开启,也可以单独勾选。
+    blur_behind: bool = False
     title_text: str = DEFAULT_TITLE_TEXT  # 顶部栏标题,留空则不显示文字
     shortcuts: dict = field(default_factory=lambda: dict(DEFAULT_SHORTCUTS))
     window_x: int | None = None
@@ -281,6 +284,8 @@ class AppSettings:
             s.autostart = data["autostart"]
         if type(data.get("compact_mode")) is bool:
             s.compact_mode = data["compact_mode"]
+        if type(data.get("blur_behind")) is bool:
+            s.blur_behind = data["blur_behind"]
         title = data.get("title_text")
         if isinstance(title, str):
             # 去掉换行等控制字符,再按长度上限截断(与输入框的 maxLength 一致)

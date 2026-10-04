@@ -65,6 +65,7 @@ from .settings_dialog import SettingsWindow
 from .keybind_window import KeybindWindow
 from .history_window import HistoryWindow
 from .tray_icon import TrayIcon
+from .blur_behind import apply_to_widget
 from . import autostart
 
 def build_qss(t: Theme) -> str:
@@ -1269,6 +1270,7 @@ class MainWindow(QWidget):
     def _on_settings_changed(self):
         """设置变动立即预览，短时间内的连续磁盘写入合并保存。"""
         self.apply_theme()
+        self._apply_blur_behind()
         # 设置窗口自绘外观(背景色/透明度/字体),跟着一起刷新;
         # 自定义配色窗口若开着,色块也要同步(从里面改的颜色不用重画,幂等)
         win = getattr(self, "_settings_win", None)
@@ -1623,12 +1625,14 @@ class MainWindow(QWidget):
         super().showEvent(event)
         QTimer.singleShot(0, self._apply_z_order)
         QTimer.singleShot(0, self._apply_taskbar_style)
+        QTimer.singleShot(0, self._apply_blur_behind)
 
     def changeEvent(self, event):
         """窗口标志被重建后补回任务栏样式(Qt 的 show/hide 流程会重置扩展样式)。"""
         super().changeEvent(event)
         if event.type() == QEvent.WindowStateChange:
             QTimer.singleShot(0, self._apply_taskbar_style)
+            QTimer.singleShot(0, self._apply_blur_behind)
 
     def hideEvent(self, event):
         """窗口被隐藏(托盘收起/最小化)时立刻落盘。
@@ -1706,6 +1710,18 @@ class MainWindow(QWidget):
         self._apply_z_order()  # 开关置底后立刻按新层级校正
         self._settings_dirty = True
         self._settings_save_timer.start()
+
+    # ---- 真·毛玻璃 ----
+    def _apply_blur_behind(self):
+        """按设置开关窗口背后的模糊(真·毛玻璃)。
+
+        只是把设置转给 blur_behind 模块,失败静默——这个 API 未公开,
+        不支持时只是没有毛玻璃,不该影响其它功能。窗口标志重建(最小化还原、
+        改任务栏样式)会丢掉这个效果,所以 showEvent/changeEvent 里都要补一次。
+        """
+        if not self.isVisible():
+            return False
+        return apply_to_widget(self, bool(self.settings.blur_behind))
 
     # ---- 任务栏图标与系统托盘 ----
     def _apply_taskbar_style(self):
