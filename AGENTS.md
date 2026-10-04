@@ -100,6 +100,8 @@ python -m PyInstaller lumistdo.spec --noconfirm
 - **圆点不抢焦点**：`TaskItem.dot` 设 `Qt.NoFocus`，点完成时不会触发文本框的 `editingFinished`，避免完成与保存逻辑冲突。
 - **半透明 + 圆角**：窗口 `WA_TranslucentBackground` + 容器 `rgba` 背景，文字保持不透明清晰；圆角外区域透明。
 - **毛玻璃只有一种做法真的有效**：要"糊掉背后"必须调未公开的 `SetWindowCompositionAttribute` + `ACCENT_ENABLE_BLURBEHIND`(3)（`blur_behind.py`）。实测这台 Win11 上 `ACCENT_ENABLE_ACRYLICBLURBEHIND`(4) 与 `ACCENT_ENABLE_HOSTBACKDROP`(5) 都**返回成功但毫无效果**，已废弃的 `DwmEnableBlurBehindWindow` 同样不生效——判断有没有效只能看画面，不能看返回值。`GradientColor` 是 ABGR（低字节 alpha），不是 ARGB。窗口标志重建（最小化还原、改任务栏样式）会丢掉效果，所以 `showEvent` / `changeEvent` 里都要补一次 `_apply_blur_behind()`。模糊是 DWM 合成的，`PrintWindow` / `grab()` 都抓不到，验收必须整屏抓图。
+- **窗口层级回传的是层级名，不是"要不要置底"的布尔值**：`SettingsWindow.z_order_changed` 发 `"top"/"bottom"/"normal"`，主窗口 `set_layer(name)` 接。早先发的是 `name == "bottom"` 的布尔值，选「置于最上层」时回传 `False` 被主窗口当成"回到普通层级"，`set_always_on_bottom(False)` 随即将单选弹回「普通层级」——用户看到的就是"置顶点了没反应"（设置其实已经写进去了，只有界面被弹回）。同步单选项一律走 `MainWindow._sync_layer_checks()`（按当前 `_always_on_top/_always_on_bottom` 算模式），不要在置顶/置底分支里各写死一个模式。
+- **单选圆点要用 `qradialgradient` 画，别用 border**：`QRadioButton::indicator` 给 15px 方块配 `border-radius:8px`，四角各差半像素，量化出来是个圆角方框；靠加粗 border 做"环"会让底色从环里透出来，像方块套方块。现由 `app_settings.radio_qss(theme)` 按明暗主题生成（浅色背景下白环等于看不见），在 `SettingsWindow.apply_theme()` 里拼到 `WINDOW_QSS` 后面。
 - **拖动/缩放**：无边框窗口重写鼠标事件，顶栏空白处拖动、边缘缩放；`position_fixed` 打开后 `_edge()` 返回 None 且不再拖动。
 - **渐隐**：只有缩略模式会让顶栏渐隐。`_chrome_wanted()` 是唯一判定入口；`_reveal_until` 让"点窗口临时唤回 3 秒"在没有鼠标贴边时也能点到图标。
 - **清单区绝不能用 `setVisible(False)` 隐藏**：`QScrollArea` 不可见后不再重算几何，内部 widget 会卡在 `sizeHint` 宽度（638）把任务行撑出窗口；要折叠就走 `setMaximumHeight`（`_set_widget_shown`）。
