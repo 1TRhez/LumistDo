@@ -357,3 +357,31 @@ def test_settings_window_emits_position_fixed_signal(app):
 
     assert settings.position_fixed is True
     assert emitted == [True]
+
+
+def test_light_theme_darkens_text_and_chrome(app):
+    """切到浅色主题时字色要变深,标题与页脚的固定灰也要跟着压暗。
+
+    否则浅底上还是浅灰字,等于看不见——这是用「素白」预设最容易踩的坑。
+    """
+    dark = AppSettings(bg_color="#25262c", text_color="#e9e9ef").to_theme()
+    light = AppSettings(bg_color="#f2f2f4", text_color="#2c2c32").to_theme()
+
+    assert dark.is_dark is True
+    assert light.is_dark is False
+
+    def luminance(color):
+        return (
+            0.299 * color.red() + 0.587 * color.green() + 0.114 * color.blue()
+        )
+
+    for name in ("fixed_title_color", "fixed_footer_color"):
+        dark_gray = luminance(getattr(dark, name))
+        light_gray = luminance(getattr(light, name))
+        assert light_gray < dark_gray, f"{name} 在浅色主题下应该更深"
+        assert light_gray < 140, f"{name} 在浅色主题下仍然太浅,糊在浅底上"
+
+    # 用户自定义的正文颜色要原样保留,不能被"自动加深"改掉
+    assert light.text_color.name() == "#2c2c32"
+    assert luminance(light.text_color) < luminance(dark.text_color)
+

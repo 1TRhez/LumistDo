@@ -107,6 +107,7 @@ python -m PyInstaller lumistdo.spec --noconfirm
 - **数据目录可迁移**：`app_paths.data_dir()` 每次取用都跑一次迁移——先搬早期版本用过的 `%APPDATA%\LumistDo`（新目录已有同名文件则不覆盖，搬完删旧文件），再搬便携版的程序目录内 `.lumistdo`（只复制不删）。迁移失败静默，绝不能挡住启动。
 - **背景用三档垂直渐变**：容器背景由 `app_settings.container_qss()` 统一生成（三个窗口共用）。两档渐变要把色差摊满整个窗口高度，8bit 量化下会出现一条条水平色带，所以用上/中/下三档停靠点把色差压小。
 - **预设是"名字"不是颜色值**：`settings_dialog.PRESETS` 的 `name`（中文原名）同时是持久化标识，界面显示走 `i18n.preset_name()`；`AppSettings.appearance_preset` 只用于设置窗口高亮，不影响渲染。
+- **固定灰也要跟着明暗走**：`Theme.fixed_title_color` / `fixed_footer_color` 以前是硬编码常量，浅色主题下等于看不见；现在由 `Theme._derive()` 按 `is_dark` 给出（深色 `#9a9aa5`/`#8a8a94`，浅色 `#5c5c66`/`#63636d`），所以不要再往 `PRESETS` 字典里塞这两个键。
 - **界面产品名走 `i18n.product_name()`**：中文显示"览明贴"，英文显示"LumistDo"；需要显示软件名的地方（窗口标题、消息框标题、托盘 tooltip）都用它，不要硬编码。
 
 ## 开发约定

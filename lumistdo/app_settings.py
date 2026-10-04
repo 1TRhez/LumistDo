@@ -118,9 +118,9 @@ class Theme:
     font_size: int = 13
     bg_opacity: int = 240  # 0~255
 
-    # ---- 固定(软件标识,不随自定义变) ----
-    fixed_title_color: QColor = field(default_factory=lambda: QColor("#9a9aa5"))
-    fixed_footer_color: QColor = field(default_factory=lambda: QColor("#8a8a94"))
+    # ---- 固定(软件标识,不随自定义变;明暗跟着背景走,见 _derive) ----
+    fixed_title_color: QColor = field(init=False)
+    fixed_footer_color: QColor = field(init=False)
 
     # ---- 自动派生 ----
     sep_color: QColor = field(init=False)
@@ -176,6 +176,14 @@ class Theme:
             self.scrollbar_hover_color = QColor(0, 0, 0, 70)
             self.accent_color = QColor("#2b7de9")
             self.edge_fade_color = QColor(bg.red(), bg.green(), bg.blue())
+
+        # 标题与页脚的灰也要跟着明暗走:浅色背景上用原来的浅灰等于看不见。
+        if self.is_dark:
+            self.fixed_title_color = QColor("#9a9aa5")
+            self.fixed_footer_color = QColor("#8a8a94")
+        else:
+            self.fixed_title_color = QColor("#5c5c66")
+            self.fixed_footer_color = QColor("#63636d")
 
 
 def container_qss(theme: Theme, selector: str, radius: float) -> str:
