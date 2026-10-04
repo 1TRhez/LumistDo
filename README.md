@@ -118,12 +118,12 @@ LumistDo 是照着「桌面小工具」写的，不是套壳的网页应用：
 
 ## 下载与安装
 
-到 [Releases](https://github.com/1TRhez/LumistDo/releases) 下载 **`LumistDo-Setup-v*.exe`**，双击按向导安装（仅当前用户，不弹 UAC）。
+到 [Releases](https://github.com/1TRhez/LumistDo/releases) 下载 **`LumistDo-Setup-v*.exe`**（最新版直链：[v1.3.1](https://github.com/1TRhez/LumistDo/releases/download/v1.3.1/LumistDo-Setup-v1.3.1.exe)，31 MB），双击按向导安装（仅当前用户，不弹 UAC）。
 
 - 默认安装目录：`%LOCALAPPDATA%\Programs\LumistDo`
 - 用户数据目录：`%APPDATA%\LumistDo`（安装/更新/卸载都不碰它）
 - 卸载时会问一次「是否同时删除用户数据」，选「否」就保留任务和设置
-- 程序**没有代码签名**，首次运行 Windows SmartScreen 会提示"未知发布者"，点「更多信息 → 仍要运行」即可
+- 程序**没有代码签名**，首次运行 Windows SmartScreen 会提示「未知发布者」，点「更多信息 → 仍要运行」即可
 
 想免安装也可以下载源码自己跑（见下方「开发」）。
 
