@@ -67,6 +67,7 @@ from .history_window import HistoryWindow
 from .tray_icon import TrayIcon
 from .blur_behind import apply_to_widget
 from . import autostart
+from . import global_hotkeys
 
 def build_qss(t: Theme) -> str:
     """根据主题动态生成 QSS。"""
@@ -712,9 +713,19 @@ class MainWindow(QWidget):
 
         self._new_shortcut = QShortcut(QKeySequence("Ctrl+N"), self)
         self._new_shortcut.activated.connect(self.add_task)
-        # 顶栏三个按钮的快捷键来自设置(可在「编辑快捷键」窗口里改)
+        # 顶栏三个按钮的快捷键来自设置(可在「编辑快捷键」窗口里改);
+        # 默认注册成系统级热键,窗口不在前台也能用(见 global_hotkeys)。
         self._action_shortcuts = {}
+        self._hotkeys = None
+        self._hotkeys_window = 0
         self._apply_shortcuts()
+        self._ensure_hotkeys()
+
+        # 老设置文件里的出厂快捷键(不带 Alt 的 Ctrl+O/K/L)已被 load() 升级,
+        # 立刻落盘一次,免得每次启动都重算
+        if self.settings.shortcuts_upgraded:
+            self._settings_dirty = True
+            self._settings_save_timer.start()
 
         # 让边缘缩放对"可见深色块边缘"生效:给容器及所有子控件开鼠标追踪 + 事件过滤
         self._install_edge_watch(self.container)
@@ -1227,6 +1238,7 @@ class MainWindow(QWidget):
         win.title_changed.connect(self.set_title_text)
         win.history_requested.connect(self.open_history)
         win.keybind_requested.connect(self.open_keybinds)
+        win.global_shortcuts_changed.connect(self.set_global_shortcuts)
         win.reset_requested.connect(self.reset_behaviour)
         self._settings_win = win
         win.show()
@@ -1400,20 +1412,47 @@ class MainWindow(QWidget):
             self.set_always_on_bottom(False)
 
     def _apply_shortcuts(self):
-        """按 settings.shortcuts 重建三个 QShortcut(空串=不绑定)。"""
+        """按 settings.shortcuts 重建三个动作的绑定(空串=不绑定)。
+
+        默认走**全局热键**(Win32 RegisterHotKey):窗口不在前台时也能触发,
+        因为这些动作本来就是"在别的窗口里顺手拨一下"的。注册不到(被别的
+        程序占了、绑定没带修饰键、非 Windows、开关关掉了)就退回 Qt 的
+        QShortcut —— 只在主窗口被选中时响应,也就是旧行为。
+        """
+        self._release_hotkeys()
         for shortcut in self._action_shortcuts.values():
             shortcut.setParent(None)
             shortcut.deleteLater()
         self._action_shortcuts = {}
+
         actions = self._shortcut_actions()
+        bindings = {
+            name: self.settings.shortcuts.get(name, "") for name in actions
+        }
+        registered = {}
+        if self.settings.global_shortcuts and global_hotkeys.supported():
+            if self._hotkeys is None:
+                self._hotkeys = global_hotkeys.GlobalHotkeys()
+                QApplication.instance().installNativeEventFilter(self._hotkeys)
+            registered = self._hotkeys.apply(
+                int(self.winId()), bindings, actions,
+            )
+
         for name, handler in actions.items():
-            text = self.settings.shortcuts.get(name, "")
+            if registered.get(name):
+                continue      # 已经在系统层注册,不再叠一个窗口级绑定
+            text = bindings[name]
             if not text:
                 continue
             shortcut = QShortcut(QKeySequence(text), self)
             shortcut.activated.connect(handler)
             self._action_shortcuts[name] = shortcut
         self._sync_shortcut_tooltips()
+
+    def _release_hotkeys(self):
+        """注销全部全局热键(改键前、退出前都要调,否则会一直占着这些键)。"""
+        if self._hotkeys is not None:
+            self._hotkeys.release()
 
     def _sync_shortcut_tooltips(self):
         """把绑定显示在三个按钮的 tooltip 里。"""
@@ -1423,6 +1462,16 @@ class MainWindow(QWidget):
             ("fixed", self.header.fixed_btn),
         ):
             btn.set_shortcut(self.settings.shortcuts.get(name, ""))
+
+    def set_global_shortcuts(self, enabled):
+        """设置窗口里开关「全局快捷键」。"""
+        enabled = bool(enabled)
+        if enabled == bool(self.settings.global_shortcuts):
+            return
+        self.settings.global_shortcuts = enabled
+        self._apply_shortcuts()
+        self._settings_dirty = True
+        self._settings_save_timer.start()
 
     def set_shortcuts(self, shortcuts):
         """「编辑快捷键」窗口改完绑定后回调。"""
@@ -1614,6 +1663,26 @@ class MainWindow(QWidget):
             SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE,
         ))
 
+    def _ensure_hotkeys(self):
+        """窗口句柄变了就重挂全局热键。
+
+        ``RegisterHotKey`` 绑的是当时的 HWND:Qt 重建窗口标志
+        (``setWindowFlags`` / ``show``/``hide`` 流程)会换掉 HWND,
+        旧注册就再也收不到 WM_HOTKEY 了,所以要按当前 winId 重新挂。
+        """
+        if self._hotkeys is None:
+            return
+        hwnd = int(self.winId())
+        if hwnd == self._hotkeys_window:
+            return
+        self._hotkeys_window = hwnd
+        self._hotkeys.apply(
+            hwnd,
+            {name: self.settings.shortcuts.get(name, "")
+             for name in self._shortcut_actions()},
+            self._shortcut_actions(),
+        )
+
     def showEvent(self, event):
         """每次窗口(重)显示后按当前层级设置校正 z-order。
 
@@ -1626,6 +1695,7 @@ class MainWindow(QWidget):
         QTimer.singleShot(0, self._apply_z_order)
         QTimer.singleShot(0, self._apply_taskbar_style)
         QTimer.singleShot(0, self._apply_blur_behind)
+        QTimer.singleShot(0, self._ensure_hotkeys)
 
     def changeEvent(self, event):
         """窗口标志被重建后补回任务栏样式(Qt 的 show/hide 流程会重置扩展样式)。"""
@@ -1992,6 +2062,8 @@ class MainWindow(QWidget):
         self._settings_dirty = True
         self._flush_settings_save()
         self._apply_edge_cursor(None)
+        # 全局热键是系统级独占的,退出前一定注销,否则这些键要等进程消失才还回去
+        self._release_hotkeys()
         super().closeEvent(event)
 
     # ---- 拖动窗口(点空白区域拖动) + 边缘 resize----

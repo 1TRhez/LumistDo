@@ -544,6 +544,7 @@ class SettingsWindow(QWidget):
     autostart_changed = Signal(bool)     # 开机自启动:需即时写注册表
     title_changed = Signal(str)          # 顶部栏文字:需即时重排标题
     keybind_requested = Signal()         # 打开快捷键设置窗口
+    global_shortcuts_changed = Signal(bool)  # 全局快捷键开关:需重挂 RegisterHotKey
     reset_requested = Signal()           # 恢复默认设置:主窗口收掉缩略/隐藏清单等界面状态
     history_requested = Signal()
 
@@ -779,6 +780,15 @@ class SettingsWindow(QWidget):
 
         root.addWidget(self._separator())
 
+        # ---- 快捷键:是否注册成系统级热键(不选中窗口也能触发) ----
+        self._global_keys_check = QCheckBox(t("settings.global_shortcuts"))
+        self._global_keys_check.setCursor(QCursor(Qt.PointingHandCursor))
+        self._global_keys_check.setChecked(bool(self._settings.global_shortcuts))
+        self._global_keys_check.toggled.connect(self._on_global_shortcuts_toggled)
+        root.addWidget(self._global_keys_check)
+
+        root.addWidget(self._separator())
+
         # ---- 底部按钮条:编辑快捷键 / 恢复默认 / 查看历史任务(三格等宽等距) ----
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
@@ -911,6 +921,20 @@ class SettingsWindow(QWidget):
         self.autostart_changed.emit(checked)
         self.changed.emit()
 
+    def _on_global_shortcuts_toggled(self, checked):
+        """全局快捷键开关:写设置并让主窗口重挂(或注销)系统级热键。"""
+        self._settings.global_shortcuts = bool(checked)
+        self.global_shortcuts_changed.emit(bool(checked))
+        self.changed.emit()
+
+    def set_global_shortcuts_check(self, enabled):
+        """主窗口改动该开关后回同步勾选(仅主窗口调用)。"""
+        if self._global_keys_check.isChecked() == enabled:
+            return
+        self._global_keys_check.blockSignals(True)
+        self._global_keys_check.setChecked(enabled)
+        self._global_keys_check.blockSignals(False)
+
     def set_autostart_check(self, enabled, ok=True):
         """主窗口写注册表后回同步勾选;写失败时把勾选退回真实状态。"""
         if self._autostart_check.isChecked() != enabled:
@@ -958,6 +982,7 @@ class SettingsWindow(QWidget):
         s.compact_mode = defaults.compact_mode
         s.hide_from_taskbar = defaults.hide_from_taskbar
         s.blur_behind = defaults.blur_behind
+        s.global_shortcuts = defaults.global_shortcuts
         # 预设高亮一并回到默认「深空」,否则色块变了高亮还停在自定义上
         s.appearance_preset = defaults.appearance_preset
 
@@ -986,6 +1011,10 @@ class SettingsWindow(QWidget):
         self.set_z_order_checks("normal")
         self.set_fixed_check(False)
         self.set_taskbar_check(False)
+        # 全局快捷键是 AppSettings 的字段(不是 settings.<x> 交换),单独同步;
+        # emit 让主窗口把系统级热键重新挂一遍
+        self.set_global_shortcuts_check(s.global_shortcuts)
+        self.global_shortcuts_changed.emit(s.global_shortcuts)
         self.title_changed.emit(s.title_text)
         self.changed.emit()
         # 交给主窗口把缩略模式/托盘图标这些界面状态一起收掉

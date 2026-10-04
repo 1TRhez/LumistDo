@@ -17,6 +17,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel
 
 from lumistdo.main_window import MainWindow, build_qss
+from lumistdo import global_hotkeys
 from lumistdo.app_settings import (
     CUSTOM_PRESET,
     DEFAULT_PRESET,
@@ -28,6 +29,19 @@ from lumistdo.completed_panel import build_panel_qss
 from lumistdo.i18n import t
 from lumistdo.settings_dialog import CONTENT_WIDTH
 from lumistdo.task_store import TaskStore
+
+
+@pytest.fixture(autouse=True)
+def _window_level_shortcuts(monkeypatch):
+    """测试里一律关掉全局热键,退回窗口级 QShortcut。
+
+    offscreen 平台下 `QWidget.winId()` 返回占位值 1(不是真 HWND),
+    `RegisterHotKey` 必然失败并报 1400 ERROR_INVALID_WINDOW_HANDLE ——
+    所以真机上不存在的"注册失败"路径在这里反而是常态,用它测不出
+    "全局热键真的挂上了没有"。真机行为由 tests/test_global_hotkeys.py
+    里的真注册用例覆盖,这里只保证其余交互测试稳定可跑。
+    """
+    monkeypatch.setattr(global_hotkeys, "supported", lambda: False)
 
 
 @pytest.fixture
@@ -539,7 +553,7 @@ def test_settings_reset_appearance_restores_defaults(app, monkeypatch):
         )
         assert w.settings.font_size == defaults.font_size
         assert w.settings.bg_opacity == defaults.bg_opacity
-        # 快捷键一起回默认(用户要求:切换顶层 Ctrl+O / 隐藏窗口 Ctrl+P / 固定 Ctrl+K / 略缩 Ctrl+L)
+        # 快捷键一起回默认(出厂值见 app_settings.DEFAULT_SHORTCUTS)
         assert w.settings.shortcuts == DEFAULT_SHORTCUTS
         # 界面控件也同步回默认值
         assert win._title_edit.text() == DEFAULT_TITLE_TEXT
@@ -1213,18 +1227,19 @@ def test_keyboard_shortcuts_create_and_toggle_compact(app):
         new_item.edit.setPlainText("快捷键任务")
         new_item._on_editing_finished()
 
-        QTest.keyClick(w, Qt.Key_L, Qt.ControlModifier)
+        # 「缩略模式」的出厂绑定是 Ctrl+Alt+3(全局热键要避让常用键,见 app_settings)
+        QTest.keyClick(
+            w, Qt.Key_3, Qt.ControlModifier | Qt.AltModifier,
+        )
         app.processEvents()
-        assert w._compact is True          # 默认绑定 Ctrl+L = 缩略模式
+        assert w._compact is True          # 默认绑定 Ctrl+Alt+3 = 缩略模式
         QTest.keyClick(w, Qt.Key_N, Qt.ControlModifier)
         app.processEvents()
         assert len(store.active_tasks()) == 1
 
         # 绑定存在 settings 里,且三个动作都有默认值(恢复默认设置时回到这一组)
         saved = AppSettings.load(root / "settings.json")
-        assert saved.shortcuts["compact"] == "Ctrl+L"
-        assert saved.shortcuts["z_order"] == "Ctrl+O"
-        assert saved.shortcuts["fixed"] == "Ctrl+K"
+        assert saved.shortcuts == DEFAULT_SHORTCUTS
         assert set(w._action_shortcuts) == {"z_order", "fixed", "compact"}
 
 
@@ -1241,7 +1256,7 @@ def test_keybind_window_edits_and_applies_shortcut(app):
         kw = w._keybind_win
 
         edit = kw._edits["fixed"]
-        assert edit.sequence() == "Ctrl+K"
+        assert edit.sequence() == DEFAULT_SHORTCUTS["fixed"]
         QTest.keyClick(edit, Qt.Key_J, Qt.ControlModifier)
         app.processEvents()
         assert edit.sequence() == "Ctrl+J"
@@ -1280,11 +1295,14 @@ def test_keybind_window_steals_duplicate_binding(app):
         app.processEvents()
         kw = w._keybind_win
 
-        # 把「缩略模式」绑成「固定窗口位置」正在用的 Ctrl+K
-        QTest.keyClick(kw._edits["compact"], Qt.Key_K, Qt.ControlModifier)
+        # 把「缩略模式」绑成「固定窗口位置」正在用的组合键
+        QTest.keyClick(
+            kw._edits["compact"], Qt.Key_2,
+            Qt.ControlModifier | Qt.AltModifier,
+        )
         app.processEvents()
 
-        assert w.settings.shortcuts["compact"] == "Ctrl+K"
+        assert w.settings.shortcuts["compact"] == "Ctrl+Alt+2"
         assert w.settings.shortcuts["fixed"] == ""
         assert kw._edits["fixed"].sequence() == ""
         assert kw._note.isVisible() is True
@@ -1294,7 +1312,7 @@ def test_keybind_window_steals_duplicate_binding(app):
         kw._restore_defaults()
         app.processEvents()
         assert w.settings.shortcuts == DEFAULT_SHORTCUTS
-        assert kw._edits["fixed"].sequence() == "Ctrl+K"
+        assert kw._edits["fixed"].sequence() == DEFAULT_SHORTCUTS["fixed"]
         w.close()
 
 

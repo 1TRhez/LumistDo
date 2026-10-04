@@ -23,11 +23,27 @@ CUSTOM_PRESET = "custom"
 
 # 顶部栏三个功能按钮的快捷键动作名
 SHORTCUT_ACTIONS = ("z_order", "fixed", "compact")
-# 出厂快捷键:在设置窗口的「编辑快捷键」里改,恢复默认设置时回到这一组
+# 出厂快捷键:在设置窗口的「编辑快捷键」里改,恢复默认设置时回到这一组。
+#
+# 为什么是 Ctrl+Alt+1/2/3:
+# * 这三个键默认会注册成**系统级**热键(见 global_hotkeys)。系统级热键是独占的,
+#   注册期间别的程序收不到这个组合键 —— 所以出厂值必须避让常用绑定,否则就是
+#   "装了 LumistDo,浏览器和编辑器里好几个快捷键就点不动了"。
+#   实测开发机上 `Ctrl+O` / `Ctrl+K` / `Ctrl+L` / `Ctrl+Alt+O` / `Ctrl+Alt+L`
+#   都已经被别的软件占着(RegisterHotKey 报 1409),只能用更冷门的组合。
+# * 1/2/3 对应顶栏从左到右那三个按钮(图钉 → 固定 → 缩略),好记。
 DEFAULT_SHORTCUTS = {
-    "z_order": "Ctrl+O",   # 循环切换 置顶 / 普通 / 置底
-    "fixed": "Ctrl+K",     # 固定窗口位置(禁止拖动与缩放)
-    "compact": "Ctrl+L",   # 缩略模式
+    "z_order": "Ctrl+Alt+1",   # 循环切换 置顶 / 普通 / 置底
+    "fixed": "Ctrl+Alt+2",     # 固定窗口位置(禁止拖动与缩放)
+    "compact": "Ctrl+Alt+3",   # 缩略模式
+}
+# 更早版本的出厂绑定(全局快捷键上线前用过两代)。load() 会把仍停在旧默认值的
+# 绑定一次性升级到 DEFAULT_SHORTCUTS,免得老用户升级后被全局热键抢走 Ctrl+O/K/L。
+# 用户自己改过的绑定一律不动,所以这里列的是"出厂值",不是"所有历史值"。
+LEGACY_DEFAULT_SHORTCUTS = {
+    "z_order": ("Ctrl+O", "Ctrl+Alt+O"),
+    "fixed": ("Ctrl+K", "Ctrl+Alt+K"),
+    "compact": ("Ctrl+L", "Ctrl+Alt+L"),
 }
 # 禁止绑定的按键:tab 会打断焦点遍历,方向键/空格/回车留给界面本身,
 # esc 用作取消编辑,退格/删除用作清空绑定。
@@ -101,6 +117,22 @@ def _parse_shortcuts(raw) -> dict:
         # 空串是合法值,表示用户主动解绑了这个功能
         result[action] = normalize_sequence(value) if value.strip() else ""
     return result
+
+
+def _upgrade_legacy_shortcuts(shortcuts: dict) -> bool:
+    """把仍停在旧出厂值的绑定升级成新的出厂值(就地修改)。
+
+    全局热键上线后 Ctrl+O/K/L(以及中间那代 Ctrl+Alt+O/K/L)会抢走别的程序里
+    同名快捷键,所以出厂值换成了 Ctrl+Alt+1/2/3。这里只升级"从没动过、还是某个
+    历史出厂值"的项,用户自己改过的一律不动;返回 True 表示确实升过,调用方据此
+    把设置落盘。注意要按**新值**写回,否则会出现"升级后和默认值不一致"的怪状态。
+    """
+    upgraded = False
+    for action, legacy_values in LEGACY_DEFAULT_SHORTCUTS.items():
+        if shortcuts.get(action) in legacy_values:
+            shortcuts[action] = DEFAULT_SHORTCUTS[action]
+            upgraded = True
+    return upgraded
 
 
 @dataclass
@@ -270,6 +302,9 @@ class AppSettings:
     # 真·毛玻璃:让 Windows 合成器把窗口背后的桌面内容模糊掉。
     # 需要背景足够透明才看得出来;由预设「毛玻璃」默认开启,也可以单独勾选。
     blur_behind: bool = False
+    # 全局快捷键:窗口不在前台时也能触发顶栏三个动作(走 Win32 RegisterHotKey)。
+    # 关掉则退回 Qt 的窗口级 QShortcut —— 只在主窗口被选中时响应。
+    global_shortcuts: bool = True
     title_text: str = DEFAULT_TITLE_TEXT  # 顶部栏标题,留空则不显示文字
     shortcuts: dict = field(default_factory=lambda: dict(DEFAULT_SHORTCUTS))
     window_x: int | None = None
@@ -280,6 +315,8 @@ class AppSettings:
     # 当前外观来自哪套预设(PRESETS 里的名字,custom = 自定义配色)。
     # 只用于设置窗口里高亮选中的预设,不影响渲染。
     appearance_preset: str = DEFAULT_PRESET
+    # 运行期标志:load() 刚把旧出厂快捷键升级过(不落盘,只是提醒主窗口存一次)
+    shortcuts_upgraded: bool = False
 
     def to_theme(self) -> Theme:
         return Theme(
@@ -327,6 +364,8 @@ class AppSettings:
             s.compact_mode = data["compact_mode"]
         if type(data.get("blur_behind")) is bool:
             s.blur_behind = data["blur_behind"]
+        if type(data.get("global_shortcuts")) is bool:
+            s.global_shortcuts = data["global_shortcuts"]
         title = data.get("title_text")
         if isinstance(title, str):
             # 去掉换行等控制字符,再按长度上限截断(与输入框的 maxLength 一致)
@@ -335,6 +374,7 @@ class AppSettings:
             # 老版本设置文件里没有这个键 → 显示默认标语
             s.title_text = DEFAULT_TITLE_TEXT
         s.shortcuts = _parse_shortcuts(data.get("shortcuts"))
+        s.shortcuts_upgraded = _upgrade_legacy_shortcuts(s.shortcuts)
         # 置顶与置底互斥:置底开启时以置底为准,避免同时存在两个相反的层级要求
         if s.always_on_bottom:
             s.always_on_top = False
