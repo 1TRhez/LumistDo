@@ -296,14 +296,18 @@ class AppSettings:
     always_on_top: bool = False  # 图钉置顶状态,重启后保持
     always_on_bottom: bool = False  # 置底状态,与置顶互斥
     position_fixed: bool = False  # 固定窗口位置:禁止拖动与缩放,重启后保持
-    hide_from_taskbar: bool = False  # 不在任务栏显示图标:此时常驻托盘图标
+    # 在任务栏显示图标:默认关 —— 图标只放托盘,要任务栏那份才勾上。
+    # 旧版本用的是反过来的 hide_from_taskbar(默认显示在任务栏),那个键不再读:
+    # 老设置文件里 false 只是"没改过出厂值",不该被当成"用户想要任务栏图标"。
+    show_in_taskbar: bool = False
     autostart: bool = False  # 开机自启动(HKCU Run),重启后保持
     compact_mode: bool = False  # 缩略模式:只留任务列表,顶栏渐隐,重启后保持
     # 真·毛玻璃:让 Windows 合成器把窗口背后的桌面内容模糊掉。
     # 需要背景足够透明才看得出来;由预设「毛玻璃」默认开启,也可以单独勾选。
     blur_behind: bool = False
     # 全局快捷键:窗口不在前台时也能触发顶栏三个动作(走 Win32 RegisterHotKey)。
-    # 关掉则退回 Qt 的窗口级 QShortcut —— 只在主窗口被选中时响应。
+    # 界面里没有开关,默认一直开;热键注册不上时那个动作自动退回窗口级 QShortcut。
+    # 这个字段只是留个总闸(测试与排障用),正常用户不会碰到。
     global_shortcuts: bool = True
     title_text: str = DEFAULT_TITLE_TEXT  # 顶部栏标题,留空则不显示文字
     shortcuts: dict = field(default_factory=lambda: dict(DEFAULT_SHORTCUTS))
@@ -356,8 +360,8 @@ class AppSettings:
             s.always_on_bottom = data["always_on_bottom"]
         if type(data.get("position_fixed")) is bool:
             s.position_fixed = data["position_fixed"]
-        if type(data.get("hide_from_taskbar")) is bool:
-            s.hide_from_taskbar = data["hide_from_taskbar"]
+        if type(data.get("show_in_taskbar")) is bool:
+            s.show_in_taskbar = data["show_in_taskbar"]
         if type(data.get("autostart")) is bool:
             s.autostart = data["autostart"]
         if type(data.get("compact_mode")) is bool:

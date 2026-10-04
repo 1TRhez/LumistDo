@@ -555,9 +555,9 @@ class MainWindow(QWidget):
         self._always_on_top = self.settings.always_on_top  # 置顶态,showEvent 里原生应用
         self._always_on_bottom = self.settings.always_on_bottom  # 置底态,同上
         self._position_fixed = self.settings.position_fixed  # 固定态:禁止拖动与缩放
-        self._hide_from_taskbar = self.settings.hide_from_taskbar  # 任务栏不显示图标
-        self._taskbar_style_applied = False  # 原生扩展样式当前是否已改
-        self._tray = None  # 托盘图标:仅在"不显示在任务栏"打开时创建
+        self._show_in_taskbar = self.settings.show_in_taskbar  # 是否在任务栏放图标
+        self._taskbar_style_applied = None  # None = 还没应用过,见 _apply_taskbar_style
+        self._tray = None  # 托盘图标:默认常驻(任务栏图标是选配)
         self._completed_expanded = False
         self._collapsed_h = None  # 已完成面板折叠时窗口高度
         self._expanded_panel_h = 0
@@ -622,10 +622,10 @@ class MainWindow(QWidget):
         self.header.clicked.connect(self._reveal_chrome)
         v.addWidget(self.header)
 
-        # 托盘图标:任务栏不显示图标时,它是把窗口找回来的唯一入口
+        # 托盘图标:默认就常驻 —— 任务栏那枚图标是选配,关了它托盘是唯一入口
         self._tray = TrayIcon(self)
         self._tray.toggle_requested.connect(self.toggle_visible)
-        if self.settings.hide_from_taskbar:
+        if not self.settings.show_in_taskbar:
             self._tray.set_visible(True)
 
         # 开机自启动:注册表是真实状态,启动时按设置补齐/纠正(程序被挪过位置也能修正)
@@ -1233,12 +1233,11 @@ class MainWindow(QWidget):
         win.changed.connect(self._on_settings_changed)
         win.z_order_changed.connect(self.set_layer)
         win.position_fixed_changed.connect(self.set_position_fixed)
-        win.taskbar_changed.connect(self.set_hide_from_taskbar)
+        win.taskbar_changed.connect(self.set_show_in_taskbar)
         win.autostart_changed.connect(self.set_autostart)
         win.title_changed.connect(self.set_title_text)
         win.history_requested.connect(self.open_history)
         win.keybind_requested.connect(self.open_keybinds)
-        win.global_shortcuts_changed.connect(self.set_global_shortcuts)
         win.reset_requested.connect(self.reset_behaviour)
         self._settings_win = win
         win.show()
@@ -1259,7 +1258,7 @@ class MainWindow(QWidget):
     def open_history(self):
         win = getattr(self, "_history_win", None)
         if win is None:
-            win = HistoryWindow(self.store, parent=self)
+            win = HistoryWindow(self.store, self.settings, parent=self)
             win.changed.connect(self._reload_task_views)
             self._history_win = win
         win.refresh()
@@ -1289,6 +1288,14 @@ class MainWindow(QWidget):
         if win is not None:
             win.apply_theme()
             win.refresh_custom_colors()
+        # 历史任务窗口也是同一套浮动外观,主题变了要跟着刷
+        hist = getattr(self, "_history_win", None)
+        if hist is not None:
+            hist.apply_theme()
+        # 快捷键窗口同理(它的控件配色也按主题生成)
+        keys = getattr(self, "_keybind_win", None)
+        if keys is not None:
+            keys.apply_theme()
         self._settings_dirty = True
         self._settings_save_timer.start()
 
@@ -1462,16 +1469,6 @@ class MainWindow(QWidget):
             ("fixed", self.header.fixed_btn),
         ):
             btn.set_shortcut(self.settings.shortcuts.get(name, ""))
-
-    def set_global_shortcuts(self, enabled):
-        """设置窗口里开关「全局快捷键」。"""
-        enabled = bool(enabled)
-        if enabled == bool(self.settings.global_shortcuts):
-            return
-        self.settings.global_shortcuts = enabled
-        self._apply_shortcuts()
-        self._settings_dirty = True
-        self._settings_save_timer.start()
 
     def set_shortcuts(self, shortcuts):
         """「编辑快捷键」窗口改完绑定后回调。"""
@@ -1835,12 +1832,13 @@ class MainWindow(QWidget):
         """
         if not self.isVisible():
             return False  # 窗口没显示时不动它,免得凭空 show 出来
+        hidden = not self._show_in_taskbar
         if _user32 is None or _set_window_long is None:
-            self.setWindowFlag(Qt.Tool, self._hide_from_taskbar)
+            self.setWindowFlag(Qt.Tool, hidden)
             return False
         hwnd = int(self.winId())
         ex_style = _get_window_long(hwnd, GWL_EXSTYLE) or 0
-        if self._hide_from_taskbar:
+        if hidden:
             # WS_EX_APPWINDOW 优先级高于 TOOLWINDOW,必须一起清掉
             target = (ex_style | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW
         else:
@@ -1852,30 +1850,53 @@ class MainWindow(QWidget):
                 hwnd, None, 0, 0, 0, 0,
                 SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
             )
-        if style_changed or self._taskbar_style_applied != self._hide_from_taskbar:
-            self._taskbar_style_applied = self._hide_from_taskbar
+        previous = self._taskbar_style_applied
+        self._taskbar_style_applied = hidden
+        if previous is not None and (style_changed or previous != hidden):
             # 让任务栏重新登记这个窗口:必须离开当前调用栈再显隐,
             # 否则会和 Qt 的显示流程打架(见上面的说明)。
+            #
+            # 首次应用(窗口刚显示)不重登记:此时窗口还没进过任务栏,样式已经是
+            # 最终态,而 hide→show 会抢走焦点 —— 正在输入的新任务会被
+            # editingFinished 判成空任务清掉,设置窗口里的输入框也会掉焦点。
             QTimer.singleShot(0, self._reregister_for_taskbar)
         return True
 
     def _reregister_for_taskbar(self):
-        """离开事件循环当前这一轮再隐藏/重显,让任务栏重新登记窗口。"""
+        """离开事件循环当前这一轮再隐藏/重显,让任务栏重新登记窗口。
+
+        hide→show 会让窗口失去激活、焦点也一起掉光。用户是点着设置窗口里那个
+        勾选框切过来的,焦点不该就这么没了,所以先记下焦点控件、显示回来之后再还回去
+        (重显后子窗口的可见性要等下一轮才恢复,所以还焦点也要再推一轮)。
+        """
         if not self.isVisible():
             return
+        focused = QApplication.focusWidget()
         self.hide()
         self.show()
+        if focused is not None:
+            QTimer.singleShot(0, lambda: self._restore_focus(focused))
 
-    def set_hide_from_taskbar(self, hidden):
-        """切换是否在任务栏显示图标;打开时常驻托盘图标作为找回窗口的入口。"""
-        self.settings.hide_from_taskbar = hidden
-        self._hide_from_taskbar = hidden
+    @staticmethod
+    def _restore_focus(widget):
+        """把焦点还给 hide→show 之前那个控件;控件已销毁就算了。"""
+        try:
+            if not widget.isHidden():
+                widget.setFocus()
+        except RuntimeError:
+            pass  # C++ 对象已经销毁(比如空任务被清掉)
+
+    def set_show_in_taskbar(self, shown):
+        """切换是否在任务栏显示图标;关掉(默认)时常驻托盘图标作为入口。"""
+        shown = bool(shown)
+        self.settings.show_in_taskbar = shown
+        self._show_in_taskbar = shown
         self._apply_taskbar_style()
         if self._tray is not None:
-            self._tray.set_visible(hidden)
+            self._tray.set_visible(not shown)
         win = getattr(self, "_settings_win", None)
         if win is not None:
-            win.set_taskbar_check(hidden)
+            win.set_taskbar_check(shown)
         self._settings_dirty = True
         self._settings_save_timer.start()
 
@@ -1945,7 +1966,7 @@ class MainWindow(QWidget):
 
         外观与快捷键由设置窗口自己写回;这里负责只有主窗口知道的界面状态:
         缩略模式、固定窗口位置、窗口层级(置顶/置底)、
-        不在任务栏显示图标(含托盘图标)。
+        在任务栏显示图标(恢复成默认的"只在托盘")。
         「开机自启动」不在这里动 —— 那是注册表里的系统侧设置。
         """
         self._reveal_until = 0.0
@@ -1958,8 +1979,9 @@ class MainWindow(QWidget):
             self.set_always_on_bottom(False)
         if self._always_on_top:
             self.set_always_on_top(False)
-        if self._hide_from_taskbar:
-            self.set_hide_from_taskbar(False)
+        if self._show_in_taskbar:
+            # 出厂值是"只在托盘",开着的话把任务栏图标收回
+            self.set_show_in_taskbar(False)
         self._sync_pin_btn()
         self._apply_shortcuts()
         self._hide_chrome_now()

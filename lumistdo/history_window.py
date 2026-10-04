@@ -1,122 +1,196 @@
-"""历史任务窗口:批量恢复或永久删除已完成/已删除任务。"""
+"""历史任务窗口:批量恢复或永久删除已完成/已删除任务。
+
+外观与设置窗口、快捷键窗口同一套(无系统边框、圆角、羽化边缘、右上角自绘关闭
+按钮、跟随主题),由 floating_window.FloatingPanel 提供;列表用主题色自绘,
+不再写死深色。
+"""
 
 from datetime import datetime
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTreeWidget,
-    QTreeWidgetItem, QMessageBox, QAbstractItemView,
+    QAbstractItemView, QHBoxLayout, QLabel, QPushButton, QTreeWidget,
+    QTreeWidgetItem, QMessageBox,
 )
 
 from . import dialogs
-from .task_item import wrap_for_label
+from .floating_window import FloatingPanel, panel_chrome_qss
+from .i18n import product_name, t
+
+CONTENT_WIDTH = 560
+TREE_HEIGHT = 300
 
 
-HISTORY_QSS = """
-HistoryWindow { background: #1e1f24; }
-QLabel { color: #c8c8d2; font-size: 12px; }
-QLabel#title { color: #e4e4ea; font-size: 15px; font-weight: 600; }
-QTreeWidget {
-    background: #24252b;
-    border: 1px solid rgba(255,255,255,18);
-    border-radius: 6px;
-    color: #dedee6;
-    alternate-background-color: #212228;
-    outline: none;
-}
-QTreeWidget::item { min-height: 30px; padding: 2px 4px; }
-QTreeWidget::item:selected { background: #365c89; }
-QHeaderView::section {
-    background: #292a31;
-    color: #9fa0aa;
-    border: none;
-    border-bottom: 1px solid rgba(255,255,255,18);
-    padding: 7px 6px;
-    font-size: 11px;
-}
-QPushButton {
-    background: rgba(255,255,255,8);
-    border: 1px solid rgba(255,255,255,18);
-    border-radius: 6px;
-    color: #d8d8e0;
-    padding: 6px 14px;
-}
-QPushButton:hover { background: rgba(255,255,255,14); }
-QPushButton#danger { color: #ff9c9c; }
-QPushButton:disabled { color: #666872; }
-"""
+def _rgb(color):
+    """QColor → QSS 的 rgb(...)。"""
+    return f"rgb({color.red()}, {color.green()}, {color.blue()})"
 
 
-class HistoryWindow(QWidget):
+def _rgba(color):
+    """QColor → QSS 的 rgba(...),保留 alpha。"""
+    return (
+        f"rgba({color.red()}, {color.green()}, {color.blue()}, {color.alpha()})"
+    )
+
+
+class HistoryWindow(FloatingPanel):
     """展示历史任务，并执行批量恢复或永久删除。"""
 
     changed = Signal()
 
-    def __init__(self, store, parent=None):
-        super().__init__(parent)
+    def __init__(self, store, settings, parent=None):
+        super().__init__(
+            settings, parent=parent, title=t("history.title"),
+            width=CONTENT_WIDTH,
+        )
         self.store = store
-        self.setWindowTitle("历史任务")
-        self.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint | Qt.WindowStaysOnTopHint)
-        self.setStyleSheet(HISTORY_QSS)
-        self.resize(620, 440)
+        self.setWindowTitle(f"{product_name()} - {t('history.title')}")
         self._build_ui()
+        self.apply_theme()
         self.refresh()
 
+    # ---- 界面 ----
     def _build_ui(self):
-        root = QVBoxLayout(self)
-        root.setContentsMargins(16, 16, 16, 14)
-        root.setSpacing(10)
-
-        title_row = QHBoxLayout()
-        title = QLabel("历史任务")
-        title.setObjectName("title")
-        title_row.addWidget(title)
-        title_row.addStretch()
+        # 计数放在顶部条里(标题右边、关闭按钮左边),与旧版信息层级一致
         self.count_label = QLabel()
-        title_row.addWidget(self.count_label)
-        root.addLayout(title_row)
+        self.count_label.setObjectName("countLabel")
+        self.header.layout().insertWidget(1, self.count_label)
 
         self.tree = QTreeWidget()
+        self.tree.setObjectName("historyTree")
         self.tree.setColumnCount(3)
-        self.tree.setHeaderLabels(["任务", "状态", "时间"])
+        self.tree.setHeaderLabels([
+            t("history.col_task"), t("history.col_status"), t("history.col_time"),
+        ])
         self.tree.setRootIsDecorated(False)
         self.tree.setAlternatingRowColors(True)
         self.tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.tree.setFixedHeight(TREE_HEIGHT)
         self.tree.header().setStretchLastSection(False)
-        self.tree.header().resizeSection(0, 340)
+        self.tree.header().resizeSection(0, 300)
         self.tree.header().resizeSection(1, 80)
-        self.tree.header().resizeSection(2, 150)
+        self.tree.header().resizeSection(2, 130)
         self.tree.itemChanged.connect(self._update_actions)
-        root.addWidget(self.tree, 1)
+        self.body.addWidget(self.tree)
 
         actions = QHBoxLayout()
-        self.select_all_btn = QPushButton("全选")
+        actions.setSpacing(8)
+        self.select_all_btn = QPushButton(t("history.select_all"))
+        self.select_all_btn.setObjectName("actionBtn")
         self.select_all_btn.setCursor(QCursor(Qt.PointingHandCursor))
         self.select_all_btn.clicked.connect(self._toggle_all)
         actions.addWidget(self.select_all_btn)
         actions.addStretch()
-        self.restore_btn = QPushButton("恢复到任务列表")
+        self.restore_btn = QPushButton(t("history.restore_btn"))
+        self.restore_btn.setObjectName("actionBtn")
         self.restore_btn.setCursor(QCursor(Qt.PointingHandCursor))
         self.restore_btn.clicked.connect(self.restore_selected)
         actions.addWidget(self.restore_btn)
-        self.delete_btn = QPushButton("永久删除")
-        self.delete_btn.setObjectName("danger")
+        self.delete_btn = QPushButton(t("history.delete_btn"))
+        self.delete_btn.setObjectName("dangerBtn")
         self.delete_btn.setCursor(QCursor(Qt.PointingHandCursor))
         self.delete_btn.clicked.connect(self.delete_selected)
         actions.addWidget(self.delete_btn)
-        root.addLayout(actions)
+        self.body.addLayout(actions)
 
+    # ---- 主题 ----
+    def _panel_qss(self, theme):
+        """列表与按钮都按当前主题配色(浅色主题下原来写死的深色会瞎)。"""
+        text = theme.text_color
+        title = theme.fixed_title_color
+        footer = theme.fixed_footer_color
+        a = theme.accent_color
+        accent = _rgb(a)
+        sep = theme.sep_color
+        sep_css = _rgba(sep)
+        if theme.is_dark:
+            inset = "rgba(255, 255, 255, 8)"
+            inset_alt = "rgba(255, 255, 255, 3)"
+            head = "rgba(255, 255, 255, 4)"
+            ring = "rgba(255, 255, 255, 40)"
+            btn_bg, btn_bg_hover = "rgba(255, 255, 255, 10)", "rgba(255, 255, 255, 18)"
+            btn_border = "rgba(255, 255, 255, 26)"
+            danger = "#ff9c9c"
+        else:
+            inset = "rgba(0, 0, 0, 10)"
+            inset_alt = "rgba(0, 0, 0, 4)"
+            head = "rgba(0, 0, 0, 5)"
+            ring = "rgba(0, 0, 0, 50)"
+            btn_bg, btn_bg_hover = "rgba(0, 0, 0, 12)", "rgba(0, 0, 0, 22)"
+            btn_border = "rgba(0, 0, 0, 30)"
+            danger = "#c0392b"
+        return panel_chrome_qss(theme) + f"""
+QLabel#countLabel {{
+    color: {_rgb(footer)};
+    font-size: 12px;
+}}
+QTreeWidget#historyTree {{
+    background: {inset};
+    alternate-background-color: {inset_alt};
+    border: 1px solid {sep_css};
+    border-radius: 6px;
+    color: {_rgb(text)};
+    outline: none;
+}}
+QTreeWidget#historyTree::item {{
+    min-height: 28px;
+    padding: 2px 4px;
+}}
+QTreeWidget#historyTree::item:selected {{
+    background: {accent};
+    color: #ffffff;
+}}
+QTreeWidget#historyTree::indicator {{
+    width: 14px;
+    height: 14px;
+    border: 1px solid {ring};
+    border-radius: 4px;
+    background: {inset};
+}}
+QTreeWidget#historyTree::indicator:checked {{
+    background: {accent};
+    border-color: {accent};
+}}
+QHeaderView::section {{
+    background: {head};
+    color: {_rgb(title)};
+    border: none;
+    border-bottom: 1px solid {sep_css};
+    padding: 6px 6px;
+}}
+QPushButton#actionBtn, QPushButton#dangerBtn {{
+    background: {btn_bg};
+    border: 1px solid {btn_border};
+    border-radius: 6px;
+    color: {_rgb(text)};
+    padding: 5px 12px;
+}}
+QPushButton#actionBtn:hover, QPushButton#dangerBtn:hover {{
+    background: {btn_bg_hover};
+    border-color: {accent};
+}}
+QPushButton#dangerBtn {{
+    color: {danger};
+}}
+QPushButton#actionBtn:disabled, QPushButton#dangerBtn:disabled {{
+    color: {_rgb(footer)};
+}}
+"""
+
+    # ---- 数据 ----
     def refresh(self):
         self.tree.blockSignals(True)
         self.tree.clear()
         tasks = self.store.history_tasks()
         for task in tasks:
-            status = "已删除" if task.deleted else "已完成"
+            status = t(
+                "history.status_deleted" if task.deleted
+                else "history.status_completed",
+            )
             stamp = task.deleted_at or task.completed_at or task.created_at
-            text = task.text or "(空任务)"
             item = QTreeWidgetItem([
-                text,
+                task.text or t("history.empty_task"),
                 status,
                 self._format_time(stamp),
             ])
@@ -125,7 +199,7 @@ class HistoryWindow(QWidget):
             item.setCheckState(0, Qt.Unchecked)
             self.tree.addTopLevelItem(item)
         self.tree.blockSignals(False)
-        self.count_label.setText(f"共 {len(tasks)} 项")
+        self.count_label.setText(t("history.count", n=len(tasks)))
         self._update_actions()
 
     def _checked_ids(self):
@@ -153,9 +227,16 @@ class HistoryWindow(QWidget):
         count = len(self._checked_ids())
         self.restore_btn.setEnabled(count > 0)
         self.delete_btn.setEnabled(count > 0)
-        self.restore_btn.setText(f"恢复到任务列表 ({count})" if count else "恢复到任务列表")
-        self.delete_btn.setText(f"永久删除 ({count})" if count else "永久删除")
+        self.restore_btn.setText(
+            t("history.restore_btn_n", n=count) if count
+            else t("history.restore_btn")
+        )
+        self.delete_btn.setText(
+            t("history.delete_btn_n", n=count) if count
+            else t("history.delete_btn")
+        )
 
+    # ---- 动作 ----
     def restore_selected(self):
         ids = self._checked_ids()
         if not ids:
@@ -171,8 +252,8 @@ class HistoryWindow(QWidget):
         if confirm:
             answer = dialogs.question(
                 self,
-                "永久删除",
-                f"确定永久删除选中的 {len(ids)} 个任务吗？此操作无法恢复。",
+                t("history.delete_btn"),
+                t("history.delete_confirm", n=len(ids)),
             )
             if answer != QMessageBox.Yes:
                 return

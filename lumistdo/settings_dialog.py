@@ -28,7 +28,8 @@ from .app_settings import (
 )
 from .floating_window import (
     CONTAINER_RADIUS, OUTER_MARGIN, CloseButton, clamp_to_screen,
-    custom_preset_glyph, make_color_btn, paint_color_btn, paint_edge_fade,
+    custom_preset_glyph, make_color_btn, panel_chrome_qss, panel_widgets_qss,
+    paint_color_btn, paint_edge_fade,
 )
 from .i18n import (
     LANG_EN, LANG_ZH, preset_name, product_name, set_language, t,
@@ -51,113 +52,9 @@ def pick_color(initial: QColor, title: str, parent=None) -> QColor:
     dialog.setOption(QColorDialog.DontUseNativeDialog, True)
     accepted = dialog.exec()
     return dialog.selectedColor() if accepted else QColor()
-
-WINDOW_QSS = """
-QLabel { color: #c8c8d2; }QLabel#sectionTitle {
-    color: #9a9aa5;
-    font-weight: 700;
-    letter-spacing: 1.5px;
-}
-QLabel#windowTitle {
-    color: #9a9aa5;
-    font-weight: 700;
-    letter-spacing: 2.0px;
-}
-QPushButton#colorBtn {
-    border: 1px solid rgba(255,255,255,30);
-    border-radius: 6px;
-    min-width: 60px;
-    min-height: 26px;
-}
-QPushButton#actionBtn {
-    background: rgba(255,255,255,8);
-    border: 1px solid rgba(255,255,255,16);
-    border-radius: 7px;
-    color: #d0d0d8;
-    padding: 6px 16px;
-}
-QPushButton#actionBtn:hover {
-    background: rgba(255,255,255,14);
-}
-QPushButton#iconBtn {
-    background: rgba(255,255,255,8);
-    border: 1px solid rgba(255,255,255,16);
-    border-radius: 7px;
-    color: #d0d0d8;
-    padding: 0;
-}
-QPushButton#iconBtn:hover {
-    background: rgba(255,255,255,16);
-}
-QSlider::groove:horizontal {
-    height: 4px;
-    background: rgba(255,255,255,20);
-    border-radius: 2px;
-}
-QSlider::handle:horizontal {
-    width: 14px;
-    height: 14px;
-    margin: -5px 0;
-    background: #5ea0ff;
-    border-radius: 7px;
-}
-QSpinBox {
-    background: rgba(255,255,255,8);
-    border: 1px solid rgba(255,255,255,20);
-    border-radius: 6px;
-    color: #e0e0e8;
-    padding: 3px 6px;
-}
-QSpinBox::up-button, QSpinBox::down-button { width: 16px; }
-QCheckBox {
-    color: #c8c8d2;
-    spacing: 8px;
-}
-QCheckBox::indicator {
-    width: 15px;
-    height: 15px;
-    border: 1px solid rgba(255,255,255,40);
-    border-radius: 4px;
-    background: rgba(255,255,255,8);
-}
-QCheckBox::indicator:hover {
-    border-color: #5ea0ff;
-}
-QCheckBox::indicator:checked {
-    background: #5ea0ff;
-    border-color: #5ea0ff;
-}
-QRadioButton {
-    color: #c8c8d2;
-    spacing: 8px;
-}
-/* 圆点本体由 radio_qss(theme) 在 apply_theme 里按明暗主题给,不写死在这里 */
-QComboBox {
-    background: rgba(255,255,255,8);
-    border: 1px solid rgba(255,255,255,20);
-    border-radius: 6px;
-    color: #e0e0e8;
-    min-height: 28px;
-    padding: 2px 8px;
-}
-QComboBox QAbstractItemView {
-    background: #282930;
-    border: 1px solid rgba(255,255,255,20);
-    color: #e0e0e8;
-    selection-background-color: #3d6599;
-}
-QLineEdit {
-    background: rgba(255,255,255,8);
-    border: 1px solid rgba(255,255,255,20);
-    border-radius: 6px;
-    color: #e0e0e8;
-    min-height: 28px;
-    padding: 2px 8px;
-}
-QLineEdit:focus {
-    border-color: #5ea0ff;
-}
-"""
+# 设置窗口/自定义配色窗口的控件配色全部由 floating_window 里按主题生成的
+# panel_widgets_qss(theme) / panel_chrome_qss(theme) / app_settings.radio_qss(theme)
+# 提供 —— 以前这里写死白 alpha 叠加,浅色主题(素白)下相当于什么都看不见。
 
 # 预设主题:每套包含 bg_color, text_color, font_family, font_size, bg_opacity, blur。
 # name 同时是持久化用的标识(settings.appearance_preset),不要跟着界面语言改。
@@ -385,7 +282,6 @@ class CustomColorWindow(QWidget):
         )
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setWindowTitle(f"{product_name()} - {t('custom.title')}")
-        self.setStyleSheet(WINDOW_QSS)
         self.setFixedWidth(CONTENT_WIDTH + OUTER_MARGIN * 2)
         self._fade_pixmap = None
         self._fade_key = None
@@ -411,7 +307,7 @@ class CustomColorWindow(QWidget):
 
         hint = QLabel(t("custom.hint"))
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #8a8a94;")
+        hint.setObjectName("hintLabel")   # 配色由 panel_chrome_qss 按主题给
         root.addWidget(hint)
 
         self._bg_btn = make_color_btn(QColor(self._settings.bg_color))
@@ -443,7 +339,7 @@ class CustomColorWindow(QWidget):
         col = QVBoxLayout()
         col.setSpacing(6)
         lbl = QLabel(label_text)
-        lbl.setStyleSheet("color: #8a8a94;")
+        lbl.setObjectName("hintLabel")
         lbl.setFixedHeight(18)
         col.addWidget(lbl)
         btn.clicked.connect(slot)
@@ -490,6 +386,8 @@ class CustomColorWindow(QWidget):
         self.update()
 
     def _emit(self):
+        # 自己的底色与文字色也跟着变:改字体颜色时这里立刻能看出效果
+        self.apply_theme()
         self.changed.emit(
             QColor(self._settings.bg_color), QColor(self._settings.text_color),
         )
@@ -500,6 +398,7 @@ class CustomColorWindow(QWidget):
         self.container.setStyleSheet(
             container_qss(theme, "QFrame#settingsContainer", CONTAINER_RADIUS),
         )
+        self.setStyleSheet(panel_widgets_qss(theme) + panel_chrome_qss(theme))
         self.setFont(QFont(theme.font_family, 10))
         self.reset_btn.setIcon(QIcon(reset_glyph(16, QColor(theme.text_color))))
         self._fade_pixmap = None
@@ -540,11 +439,10 @@ class SettingsWindow(QWidget):
     changed = Signal()  # 任何设置变动时发出,主窗口据此实时刷新
     z_order_changed = Signal(str)        # 窗口层级:回传 "top"/"bottom"/"normal"
     position_fixed_changed = Signal(bool)  # 固定开关:同样需即时生效
-    taskbar_changed = Signal(bool)       # 任务栏图标开关:需即时改扩展样式
+    taskbar_changed = Signal(bool)       # 「在任务栏显示图标」开关:需即时改扩展样式
     autostart_changed = Signal(bool)     # 开机自启动:需即时写注册表
     title_changed = Signal(str)          # 顶部栏文字:需即时重排标题
     keybind_requested = Signal()         # 打开快捷键设置窗口
-    global_shortcuts_changed = Signal(bool)  # 全局快捷键开关:需重挂 RegisterHotKey
     reset_requested = Signal()           # 恢复默认设置:主窗口收掉缩略/隐藏清单等界面状态
     history_requested = Signal()
 
@@ -559,7 +457,6 @@ class SettingsWindow(QWidget):
             Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint,
         )
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setStyleSheet(WINDOW_QSS)
         self.setFixedWidth(CONTENT_WIDTH + OUTER_MARGIN * 2)
         self._settings = settings
         self._fade_pixmap = None
@@ -750,10 +647,10 @@ class SettingsWindow(QWidget):
         self._fixed_check.setChecked(self._settings.position_fixed)
         self._fixed_check.toggled.connect(self._on_position_fixed_toggled)
         root.addWidget(self._fixed_check)
-        self._taskbar_check = QCheckBox(t("settings.hide_from_taskbar"))
+        self._taskbar_check = QCheckBox(t("settings.show_in_taskbar"))
         self._taskbar_check.setCursor(QCursor(Qt.PointingHandCursor))
-        self._taskbar_check.setChecked(self._settings.hide_from_taskbar)
-        self._taskbar_check.toggled.connect(self._on_hide_from_taskbar_toggled)
+        self._taskbar_check.setChecked(self._settings.show_in_taskbar)
+        self._taskbar_check.toggled.connect(self._on_show_in_taskbar_toggled)
         root.addWidget(self._taskbar_check)
 
         self._autostart_check = QCheckBox(t("settings.autostart"))
@@ -777,15 +674,6 @@ class SettingsWindow(QWidget):
         lang_row.addWidget(self._lang_combo)
         lang_row.addStretch()
         root.addLayout(lang_row)
-
-        root.addWidget(self._separator())
-
-        # ---- 快捷键:是否注册成系统级热键(不选中窗口也能触发) ----
-        self._global_keys_check = QCheckBox(t("settings.global_shortcuts"))
-        self._global_keys_check.setCursor(QCursor(Qt.PointingHandCursor))
-        self._global_keys_check.setChecked(bool(self._settings.global_shortcuts))
-        self._global_keys_check.toggled.connect(self._on_global_shortcuts_toggled)
-        root.addWidget(self._global_keys_check)
 
         root.addWidget(self._separator())
 
@@ -823,8 +711,10 @@ class SettingsWindow(QWidget):
         self.container.setStyleSheet(
             container_qss(theme, "QFrame#settingsContainer", CONTAINER_RADIUS),
         )
-        # 单选圆点:按明暗主题重算(浅色背景下白环等于看不见)
-        self.setStyleSheet(WINDOW_QSS + radio_qss(theme))
+        # 单选圆点与标题条配色:按明暗主题重算(浅色背景下白环/白字等于看不见)
+        self.setStyleSheet(
+            panel_widgets_qss(theme) + radio_qss(theme) + panel_chrome_qss(theme),
+        )
         self.setFont(QFont(theme.font_family, 10))
         self._reset_btn.setIcon(QIcon(reset_glyph(16, QColor(theme.text_color))))
         self._fade_pixmap = None
@@ -903,8 +793,8 @@ class SettingsWindow(QWidget):
         self.position_fixed_changed.emit(checked)
         self.changed.emit()
 
-    def _on_hide_from_taskbar_toggled(self, checked):
-        self._settings.hide_from_taskbar = checked
+    def _on_show_in_taskbar_toggled(self, checked):
+        self._settings.show_in_taskbar = checked
         self.taskbar_changed.emit(checked)
         self.changed.emit()
 
@@ -913,32 +803,18 @@ class SettingsWindow(QWidget):
         # 只是开关一件效果,颜色没变,不该把预设高亮改成"自定义配色"
         self._emit_changed()
 
-    def set_taskbar_check(self, hidden):
+    def set_taskbar_check(self, shown):
         """主窗口改动任务栏开关后回同步勾选(仅主窗口调用)。"""
-        if self._taskbar_check.isChecked() == hidden:
+        if self._taskbar_check.isChecked() == shown:
             return
         self._taskbar_check.blockSignals(True)
-        self._taskbar_check.setChecked(hidden)
+        self._taskbar_check.setChecked(shown)
         self._taskbar_check.blockSignals(False)
 
     def _on_autostart_toggled(self, checked):
         self._settings.autostart = checked
         self.autostart_changed.emit(checked)
         self.changed.emit()
-
-    def _on_global_shortcuts_toggled(self, checked):
-        """全局快捷键开关:写设置并让主窗口重挂(或注销)系统级热键。"""
-        self._settings.global_shortcuts = bool(checked)
-        self.global_shortcuts_changed.emit(bool(checked))
-        self.changed.emit()
-
-    def set_global_shortcuts_check(self, enabled):
-        """主窗口改动该开关后回同步勾选(仅主窗口调用)。"""
-        if self._global_keys_check.isChecked() == enabled:
-            return
-        self._global_keys_check.blockSignals(True)
-        self._global_keys_check.setChecked(enabled)
-        self._global_keys_check.blockSignals(False)
 
     def set_autostart_check(self, enabled, ok=True):
         """主窗口写注册表后回同步勾选;写失败时把勾选退回真实状态。"""
@@ -985,9 +861,8 @@ class SettingsWindow(QWidget):
         s.always_on_bottom = defaults.always_on_bottom
         s.position_fixed = defaults.position_fixed
         s.compact_mode = defaults.compact_mode
-        s.hide_from_taskbar = defaults.hide_from_taskbar
+        s.show_in_taskbar = defaults.show_in_taskbar
         s.blur_behind = defaults.blur_behind
-        s.global_shortcuts = defaults.global_shortcuts
         # 预设高亮一并回到默认「深空」,否则色块变了高亮还停在自定义上
         s.appearance_preset = defaults.appearance_preset
 
@@ -1015,11 +890,7 @@ class SettingsWindow(QWidget):
         self.refresh_custom_colors()
         self.set_z_order_checks("normal")
         self.set_fixed_check(False)
-        self.set_taskbar_check(False)
-        # 全局快捷键是 AppSettings 的字段(不是 settings.<x> 交换),单独同步;
-        # emit 让主窗口把系统级热键重新挂一遍
-        self.set_global_shortcuts_check(s.global_shortcuts)
-        self.global_shortcuts_changed.emit(s.global_shortcuts)
+        self.set_taskbar_check(s.show_in_taskbar)
         self.title_changed.emit(s.title_text)
         self.changed.emit()
         # 交给主窗口把缩略模式/托盘图标这些界面状态一起收掉
@@ -1085,13 +956,13 @@ class SettingsWindow(QWidget):
         """分区之间的细横线(不用文字标题,版面更干净)。"""
         sep = QFrame()
         sep.setFixedHeight(1)
-        sep.setStyleSheet("background: rgba(255, 255, 255, 18);")
+        sep.setObjectName("panelSep")
         return sep
 
     def _row_label(self, text):
         lbl = QLabel(text)
         # 字号跟随设置(与主界面一致),只固定灰色的次级文字色
-        lbl.setStyleSheet("color: #8a8a94;")
+        lbl.setObjectName("hintLabel")
         lbl.setFixedHeight(18)
         return lbl
 

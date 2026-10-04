@@ -14,7 +14,7 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import QColor, QMouseEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QLabel
+from PySide6.QtWidgets import QApplication, QLabel, QLineEdit
 
 from lumistdo.main_window import MainWindow, build_qss
 from lumistdo import global_hotkeys
@@ -27,7 +27,7 @@ from lumistdo.app_settings import (
 )
 from lumistdo.completed_panel import build_panel_qss
 from lumistdo.i18n import t
-from lumistdo.settings_dialog import CONTENT_WIDTH
+from lumistdo.settings_dialog import CONTENT_WIDTH, SettingsWindow
 from lumistdo.task_store import TaskStore
 
 
@@ -534,7 +534,7 @@ def test_settings_reset_appearance_restores_defaults(app, monkeypatch):
         win._mark_custom_preset()
         win._layer_radios["top"].setChecked(True)
         win._fixed_check.setChecked(True)
-        win._taskbar_check.setChecked(True)
+        win._taskbar_check.setChecked(True)   # 「在任务栏显示图标」= 反着出厂值来
         w.settings.shortcuts = {"z_order": "Ctrl+9", "fixed": "", "compact": ""}
         w.set_compact_mode(True, animate=False)
         app.processEvents()
@@ -564,7 +564,9 @@ def test_settings_reset_appearance_restores_defaults(app, monkeypatch):
         assert w.settings.always_on_bottom is False
         assert w.settings.position_fixed is False
         assert w.settings.compact_mode is False
-        assert w.settings.hide_from_taskbar is False
+        # 「在任务栏显示图标」也回到出厂值(默认关:只在托盘)
+        assert w.settings.show_in_taskbar == defaults.show_in_taskbar
+        assert win._taskbar_check.isChecked() == defaults.show_in_taskbar
         # 预设高亮也要回到默认那个(否则色块回到深空、圆点还停在自定义上)
         assert w.settings.appearance_preset == DEFAULT_PRESET
         assert win._preset_btns[DEFAULT_PRESET].property("selected") == "true"
@@ -1745,6 +1747,32 @@ def test_bottom_state_restored_on_startup(app):
         assert w._always_on_top is False
 
 
+def test_settings_window_text_and_controls_follow_theme(app):
+    """设置窗口自己的字色/滑轨要跟着配色走。
+
+    回归:这些控件的样式以前是写死的白 alpha 叠加,深色背景没问题,
+    浅色主题(素白)下文字、滑轨、输入框边框全都看不见;而且改字体颜色时
+    设置窗口自己的字色不跟着变。
+    """
+    settings = AppSettings(bg_color="#f2f2f4", text_color="#2c2c32", bg_opacity=248)
+    win = SettingsWindow(settings)
+    qss = win.styleSheet()
+    assert "rgb(44, 44, 50)" in qss           # 字色 = text_color
+    assert "rgba(0, 0, 0" in qss              # 浅色主题用黑色低透明度
+    assert "rgba(255, 255, 255" not in qss    # 不能残留深色主题的白色叠加
+    assert "QSlider::groove:horizontal" in qss  # 滑轨也在自适应之列
+
+    # 改字体颜色 → 设置窗口自己的字色立刻跟着变
+    settings.text_color = "#c81e1e"
+    win.apply_theme()
+    assert "rgb(200, 30, 30)" in win.styleSheet()
+
+    # 深色主题回到白色低透明度
+    dark = SettingsWindow(AppSettings())
+    assert "rgba(255, 255, 255" in dark.styleSheet()
+    assert "rgba(0, 0, 0" not in dark.styleSheet()
+
+
 def test_settings_window_checks_sync_with_header_buttons(app):
     """顶部栏固定按钮/图钉三态与设置窗口控件双向同步。"""
     with tempfile.TemporaryDirectory() as d:
@@ -1959,8 +1987,8 @@ class _FakeUser32:
         return 1
 
 
-def test_hide_from_taskbar_sets_toolwindow_without_appwindow(app, monkeypatch):
-    """开启后写 WS_EX_TOOLWINDOW 并清掉 WS_EX_APPWINDOW,关掉能还原。
+def test_taskbar_icon_toggle_sets_toolwindow_without_appwindow(app, monkeypatch):
+    """关掉「在任务栏显示图标」后写 WS_EX_TOOLWINDOW 并清掉 WS_EX_APPWINDOW,开回来能还原。
 
     offscreen 平台没有真实 HWND(winId() 恒为 1,IsWindow 为 False),
     所以这里记录原生调用而不是读真实样式位;真机效果由打包版实测覆盖。
@@ -1987,21 +2015,22 @@ def test_hide_from_taskbar_sets_toolwindow_without_appwindow(app, monkeypatch):
         w.show()
         app.processEvents()
 
-        w.set_hide_from_taskbar(True)
-        app.processEvents()
-        on_value = written[-1][1]
-        visible_after_on = w.isVisible()
-
-        w.set_hide_from_taskbar(False)
+        # 关掉「在任务栏显示图标」→ 应该带上 TOOLWINDOW;再开回来 → 应该还原
+        w.set_show_in_taskbar(False)
         app.processEvents()
         off_value = written[-1][1]
         visible_after_off = w.isVisible()
+
+        w.set_show_in_taskbar(True)
+        app.processEvents()
+        on_value = written[-1][1]
+        visible_after_on = w.isVisible()
         w.close()
 
     assert written and written[-1][0] == mw.GWL_EXSTYLE, "没有写扩展样式位"
-    assert on_value & mw.WS_EX_TOOLWINDOW, f"没带上 TOOLWINDOW: {on_value:#x}"
-    assert not on_value & mw.WS_EX_APPWINDOW, "APPWINDOW 会把任务栏按钮带回来"
-    assert not off_value & mw.WS_EX_TOOLWINDOW, f"取消后没还原: {off_value:#x}"
+    assert off_value & mw.WS_EX_TOOLWINDOW, f"关掉后没带上 TOOLWINDOW: {off_value:#x}"
+    assert not off_value & mw.WS_EX_APPWINDOW, "APPWINDOW 会把任务栏按钮带回来"
+    assert not on_value & mw.WS_EX_TOOLWINDOW, f"开回来没还原: {on_value:#x}"
     # 只挑改样式的那些调用(同一进程里 _apply_z_order 也在调这个函数)
     style_calls = [
         flags for _, _, flags in fake.set_window_pos
@@ -2011,7 +2040,7 @@ def test_hide_from_taskbar_sets_toolwindow_without_appwindow(app, monkeypatch):
     assert visible_after_on and visible_after_off, "重新登记任务栏按钮后窗口没显示回来"
 
 
-def test_hide_from_taskbar_keeps_window_visible_after_reshow(app):
+def test_taskbar_icon_toggle_keeps_window_visible_after_reshow(app):
     """重新登记任务栏按钮用 hide→show,结束后窗口必须还是可见的。"""
     with tempfile.TemporaryDirectory() as d:
         root = Path(d)
@@ -2020,11 +2049,11 @@ def test_hide_from_taskbar_keeps_window_visible_after_reshow(app):
         w.show()
         app.processEvents()
 
-        w.set_hide_from_taskbar(True)
+        w.set_show_in_taskbar(True)
         app.processEvents()
         visible_after_toggle = w.isVisible()
 
-        w.set_hide_from_taskbar(False)
+        w.set_show_in_taskbar(False)
         app.processEvents()
         visible_after_restore = w.isVisible()
         w.close()
@@ -2033,8 +2062,8 @@ def test_hide_from_taskbar_keeps_window_visible_after_reshow(app):
     assert visible_after_restore, "取消后窗口没显示回来"
 
 
-def test_hide_from_taskbar_persists_and_restores_with_tray(app, monkeypatch):
-    """设置跨重启保持,启动时按设置常驻托盘图标。"""
+def test_taskbar_icon_choice_persists_and_drives_tray(app, monkeypatch):
+    """「在任务栏显示图标」跨重启保持;关着(出厂值)时常驻托盘图标。"""
     monkeypatch.setattr(
         "lumistdo.tray_icon.QSystemTrayIcon.isSystemTrayAvailable",
         staticmethod(lambda: True),
@@ -2046,20 +2075,25 @@ def test_hide_from_taskbar_persists_and_restores_with_tray(app, monkeypatch):
         first = MainWindow(store, settings_path=settings_path)
         first.show()
         app.processEvents()
-        first.set_hide_from_taskbar(True)
+        # 出厂值是"只在托盘":先开到任务栏,验证这个选择能落盘并还原
+        first.set_show_in_taskbar(True)
         first._flush_settings_save()
         first.close()
 
-        assert AppSettings.load(settings_path).hide_from_taskbar is True
+        assert AppSettings.load(settings_path).show_in_taskbar is True
 
         second = MainWindow(store, settings_path=settings_path)
         second.show()
         app.processEvents()
-        tray_visible = second._tray.is_visible()
+        tray_visible_when_in_taskbar = second._tray.is_visible()
+        second.set_show_in_taskbar(False)   # 关掉任务栏图标 → 托盘必须顶上
+        app.processEvents()
+        tray_visible_after_off = second._tray.is_visible()
         second.close()
 
-    assert second._hide_from_taskbar is True, "启动时没恢复设置"
-    assert tray_visible, "隐藏任务栏图标时常驻托盘图标没出现"
+    assert second._show_in_taskbar is False, "关掉后主窗口状态没跟上"
+    assert tray_visible_after_off, "关掉任务栏图标后常驻托盘图标没出现"
+    assert tray_visible_when_in_taskbar is False, "在任务栏显示时不该多占一个托盘图标"
 
 
 def test_tray_toggle_hides_and_shows_window(app, monkeypatch):
@@ -2099,16 +2133,70 @@ def test_settings_window_taskbar_check_follows_header(app):
         w.open_settings()
         app.processEvents()
 
+        # 出厂值:不在任务栏显示图标(只在托盘)
         assert w._settings_win._taskbar_check.isChecked() is False
         w._settings_win._taskbar_check.setChecked(True)  # 模拟用户点击
         app.processEvents()
-        assert w._hide_from_taskbar is True, "勾选后主窗口没跟上"
+        assert w._show_in_taskbar is True, "勾选后主窗口没跟上"
+        assert w.settings.show_in_taskbar is True
         assert w._settings_win._taskbar_check.isChecked() is True
 
-        w.set_hide_from_taskbar(False)  # 主窗口侧改动要回同步到勾选
+        w.set_show_in_taskbar(False)  # 主窗口侧改动要回同步到勾选
         app.processEvents()
         assert w._settings_win._taskbar_check.isChecked() is False, "勾选没被回同步"
         w.close()
+
+
+def test_default_is_tray_only_and_startup_keeps_new_task(app, monkeypatch):
+    """出厂默认「不在任务栏显示图标」(只在托盘),且启动时不抢焦点。
+
+    回归:首次应用任务栏扩展样式时也走 hide→show 重新登记,会把刚聚焦的新任务
+    输入框打掉 —— 空任务被 editingFinished 判成空任务清掉,表现就是"点 + 后
+    输入框瞬间消失"。
+    """
+    monkeypatch.setattr(
+        "lumistdo.tray_icon.QSystemTrayIcon.isSystemTrayAvailable",
+        staticmethod(lambda: True),
+    )
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        store = TaskStore(root / "tasks.json")
+        w = MainWindow(store, settings_path=root / "settings.json")
+        w.show()
+        app.processEvents()
+
+        assert w.settings.show_in_taskbar is False, "出厂值应该是只在托盘"
+        assert w._show_in_taskbar is False
+        assert w._tray.is_visible(), "只在托盘时托盘图标必须常驻"
+
+        w.add_task()
+        app.processEvents()
+        assert len(w._active_items) == 1, "新任务被启动时的焦点变动清掉了"
+        w.close()
+
+
+def test_restore_focus_skips_hidden_and_destroyed_widgets(app):
+    """重新登记任务栏后的"把焦点还回去"要能安静跳过隐藏/已销毁的控件。
+
+    hide→show 会顺带把空任务清掉,那时焦点控件已经是野指针了,不能抛出去。
+    """
+    from lumistdo.main_window import MainWindow
+
+    edit = QLineEdit()
+    edit.show()
+    edit.setFocus()
+    app.processEvents()
+    assert edit.hasFocus(), "前置条件:独立小窗口里的输入框该能拿到焦点"
+
+    MainWindow._restore_focus(edit)          # 正常:还焦点
+    assert edit.hasFocus()
+
+    edit.hide()
+    MainWindow._restore_focus(edit)          # 隐藏:跳过,不抛
+
+    edit.deleteLater()
+    app.processEvents()
+    MainWindow._restore_focus(edit)          # C++ 对象已销毁:吞掉 RuntimeError
 
 
 def test_header_title_editable_and_upper_cased(app):
@@ -2415,7 +2503,8 @@ def test_reregister_for_taskbar_is_deferred_out_of_toggle_call(app, monkeypatch)
 
         order = []
         w._reregister_for_taskbar = lambda: order.append("reregister")
-        w.set_hide_from_taskbar(True)
+        # 出厂值是"只在托盘",所以这里切到"在任务栏显示图标"也是一次真实变更
+        w.set_show_in_taskbar(True)
         assert order == [], "重新登记同步执行了,会打断 Qt 的显示流程"
         order.append("sentinel")
         for _ in range(20):

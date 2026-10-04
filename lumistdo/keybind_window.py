@@ -1,72 +1,31 @@
 """快捷键设置窗口:给顶部栏三个功能按钮绑定快捷键。
 
-外观与设置窗口同一套(无系统边框、圆角、羽化边缘、右上角自绘关闭按钮),
-输入框直接吃按键事件,所以支持 Ctrl+O 这类组合键,不用手打字符串。
+外观与设置窗口/历史任务窗口同一套(无系统边框、圆角、羽化边缘、右上角自绘关闭
+按钮、跟随主题),由 floating_window.FloatingPanel 提供。输入框直接吃按键事件,
+所以支持 Ctrl+O 这类组合键,不用手打字符串。
 """
 
 import math
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFrame,
-    QLineEdit, QSizePolicy,
+    QHBoxLayout, QPushButton, QLabel, QLineEdit, QSizePolicy,
 )
-from PySide6.QtCore import Qt, Signal, QPoint, QPointF, QRectF, QSize
+from PySide6.QtCore import Qt, Signal, QPointF, QRectF, QSize
 from PySide6.QtGui import (
-    QColor, QCursor, QFont, QFontMetrics, QIcon, QKeySequence, QPainter, QPen,
-    QPixmap, QPolygonF,
+    QColor, QCursor, QIcon, QKeySequence, QPainter, QPen, QPixmap, QPolygonF,
 )
 
-from .floating_window import (
-    CONTAINER_RADIUS, OUTER_MARGIN, CloseButton, clamp_to_screen,
-    paint_edge_fade,
-)
+from .floating_window import FloatingPanel, panel_chrome_qss, panel_widgets_qss
 
 from .app_settings import (
-    DEFAULT_SHORTCUTS, SHORTCUT_ACTIONS, container_qss, normalize_sequence,
+    DEFAULT_SHORTCUTS, SHORTCUT_ACTIONS, normalize_sequence,
 )
 from .i18n import product_name, t
 
 CONTENT_WIDTH = 340
 
-WINDOW_QSS = """
-QLabel#windowTitle {
-    color: #9a9aa5;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 2.0px;
-}
-QLabel#hintLabel {
-    color: #8a8a94;
-}
-QLabel#actionLabel {
-    color: #c8c8d2;
-}
-QLineEdit {
-    background: rgba(255,255,255,8);
-    border: 1px solid rgba(255,255,255,30);
-    border-radius: 6px;
-    padding: 4px 8px;
-    color: #e9e9ef;
-    selection-background-color: #5ea0ff;
-}
-QLineEdit:focus {
-    border-color: #5ea0ff;
-}
-QPushButton#actionBtn {
-    background: rgba(255,255,255,10);
-    border: 1px solid rgba(255,255,255,26);
-    border-radius: 6px;
-    color: #d8d8e0;
-    padding: 5px 12px;
-}
-QPushButton#actionBtn:hover {
-    background: rgba(255,255,255,18);
-    border-color: #5ea0ff;
-}
-QFrame#settingsContainer {
-    border: none;
-}
-"""
+# 控件配色全部由 floating_window 里按主题生成的 panel_widgets_qss(theme) /
+# panel_chrome_qss(theme) 提供 —— 以前这里写死白 alpha 叠加,浅色主题下看不见。
 
 
 def _polar(center, radius, angle_deg):
@@ -153,14 +112,16 @@ class ShortcutEdit(QLineEdit):
         event.accept()
 
 
-class KeybindWindow(QWidget):
-    """快捷键设置窗口(外观与设置窗口一致)。"""
+class KeybindWindow(FloatingPanel):
+    """快捷键设置窗口(外观与设置窗口/历史任务窗口一致)。"""
 
     changed = Signal(dict)   # 任一绑定变动:回传完整 shortcuts 字典
 
     def __init__(self, settings, parent=None):
-        super().__init__(parent)
-        self._settings = settings
+        super().__init__(
+            settings, parent=parent, title=t("keys.title"),
+            width=CONTENT_WIDTH,
+        )
         self._edits = {}
         self._labels = {
             "z_order": t("keys.action_z_order"),
@@ -168,37 +129,13 @@ class KeybindWindow(QWidget):
             "compact": t("keys.action_compact"),
         }
 
-        self.setWindowFlags(
-            Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint,
-        )
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedWidth(CONTENT_WIDTH + OUTER_MARGIN * 2)
         self.setWindowTitle(f"{product_name()} - {t('keys.title')}")
-        self.setStyleSheet(WINDOW_QSS)
-        self._fade_pixmap = None
-        self._fade_key = None
-        self._drag_offset = None
-
         self._build_ui()
         self.apply_theme()
 
     # ---- 界面 ----
     def _build_ui(self):
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(
-            OUTER_MARGIN, OUTER_MARGIN, OUTER_MARGIN, OUTER_MARGIN,
-        )
-        self.container = QFrame()
-        self.container.setObjectName("settingsContainer")
-        outer.addWidget(self.container)
-
-        root = QVBoxLayout(self.container)
-        root.setContentsMargins(20, 8, 20, 16)
-        root.setSpacing(10)
-
-        self.header = KeybindHeader(self)
-        self.header.close_btn.clicked.connect(self.close)
-        root.addWidget(self.header)
+        root = self.body
 
         hint = QLabel(t("keys.hint"))
         hint.setObjectName("hintLabel")
@@ -274,107 +211,9 @@ class KeybindWindow(QWidget):
         self._note.setText(text)
         self._note.setVisible(bool(text))
 
-    # ---- 外观:与设置窗口同一套(背景/透明度/字体/羽化) ----
-    def apply_theme(self):
-        theme = self._settings.to_theme()
-        self.container.setStyleSheet(
-            container_qss(theme, "QFrame#settingsContainer", CONTAINER_RADIUS),
-        )
-        self.setFont(QFont(theme.font_family, 10))
+    # ---- 外观:面板基类负责背景/字体/羽化,这里只管自己的样式与图标 ----
+    def _panel_qss(self, theme):
+        return panel_widgets_qss(theme) + panel_chrome_qss(theme)
+
+    def on_theme_applied(self, theme):
         self._reset_btn.setIcon(QIcon(reset_glyph(16, QColor(theme.text_color))))
-        self._fade_pixmap = None
-        self._fade_key = None
-        self.update()
-
-    def showEvent(self, event):
-        super().showEvent(event)
-        # 与设置窗口同样的问题:贴着主窗口居中,主窗口靠下时会落到屏幕外
-        clamp_to_screen(self)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._fade_pixmap = None
-        self._fade_key = None
-
-    def paintEvent(self, event):
-        super().paintEvent(event)
-        if self.width() <= 0 or self.height() <= 0:
-            return
-        p = QPainter(self)
-        p.drawPixmap(0, 0, self._edge_fade_pixmap())
-        p.end()
-
-    def _edge_fade_pixmap(self):
-        """与主界面/设置窗口同一套羽化画法(见 floating_window.paint_edge_fade)。"""
-        key = (self.width(), self.height(), id(self._settings))
-        if self._fade_pixmap is not None and self._fade_key == key:
-            return self._fade_pixmap
-        theme = self._settings.to_theme()
-        pm = QPixmap(self.width(), self.height())
-        pm.fill(Qt.transparent)
-        p = QPainter(pm)
-        p.setRenderHint(QPainter.Antialiasing)
-        paint_edge_fade(p, QRectF(self.container.geometry()), theme)
-        p.end()
-        self._fade_pixmap = pm
-        self._fade_key = key
-        return pm
-
-
-class KeybindHeader(QWidget):
-    """快捷键窗口顶部条:标题 + 关闭按钮,空白处可拖动窗口。"""
-
-    def __init__(self, window, parent=None):
-        super().__init__(parent)
-        self._window = window
-        row = QHBoxLayout(self)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(7)
-        self.setFixedHeight(26)
-
-        self.title_label = QLabel(t("keys.title"))
-        self.title_label.setObjectName("windowTitle")
-        self.title_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        row.addWidget(self.title_label, 1)
-        self.close_btn = CloseButton(self)
-        row.addWidget(self.close_btn)
-
-        self._drag_offset = None
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._elide_title()
-
-    def _elide_title(self):
-        width = self.title_label.width()
-        if width <= 0:
-            return
-        metrics = QFontMetrics(self.title_label.font())
-        self.title_label.setText(
-            metrics.elidedText(
-                t("keys.title").upper(), Qt.ElideRight, width,
-            ),
-        )
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self._drag_offset = (
-                event.globalPosition().toPoint()
-                - self._window.frameGeometry().topLeft()
-            )
-            event.accept()
-            return
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        if self._drag_offset is not None and (event.buttons() & Qt.LeftButton):
-            self._window.move(
-                event.globalPosition().toPoint() - self._drag_offset,
-            )
-            event.accept()
-            return
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        self._drag_offset = None
-        super().mouseReleaseEvent(event)
