@@ -70,14 +70,16 @@ from . import autostart
 from . import global_hotkeys
 
 PANEL_MARGIN = 8    # 容器离窗口边缘的留白(边缘羽化就画在这圈环带里)
-PANEL_RADIUS = 8    # 容器圆角(开毛玻璃时会被压成 0,理由见 build_qss)
+PANEL_RADIUS = 8    # 容器圆角(开毛玻璃时也保留,四角那点残糊见 _apply_blur_behind)
 
 
 def build_qss(t: Theme, radius: int = PANEL_RADIUS) -> str:
     """根据主题动态生成 QSS。
 
-    radius 是容器圆角:开毛玻璃时传 0(模糊区永远是方的且裁不住,圆角只会让
-    四个角露出没被盖住的模糊 —— 透明度调高时就是四个明显的亮角)。
+    radius 是容器圆角,默认 PANEL_RADIUS。开毛玻璃时**不**把它压成 0:
+    模糊区永远是整个窗口矩形、裁不住也圆不了,但容器铺满窗口后,糊区与
+    可见背景本来就同大,圆角只会在四个角留下约 14 平方像素的残糊 ——
+    比"直角面板"划算得多(详见 MainWindow._apply_blur_behind)。
     """
     bg = t.bg_color
     # 背景用垂直渐变(三档停靠点,见 app_settings.container_qss 的说明):
@@ -610,7 +612,7 @@ class MainWindow(QWidget):
 
         self.container = QFrame()
         self.container.setObjectName("container")
-        self.container.setStyleSheet(build_qss(self.theme, self._panel_radius()))
+        self.container.setStyleSheet(build_qss(self.theme))
         # 容器内固定箭头光标,避免被窗口边缘的 resize 光标继承
         self.container.setCursor(QCursor(Qt.ArrowCursor))
         outer.addWidget(self.container)
@@ -1348,7 +1350,7 @@ class MainWindow(QWidget):
         self.theme = self.settings.to_theme()
         t = self.theme
         # 容器 QSS
-        self.container.setStyleSheet(build_qss(t, self._panel_radius()))
+        self.container.setStyleSheet(build_qss(t))
         # 全局字体
         self.setFont(QFont(t.font_family, 10))
         # 锁头
@@ -1820,19 +1822,12 @@ class MainWindow(QWidget):
         self._settings_save_timer.start()
 
     # ---- 真·毛玻璃 ----
-    def _panel_radius(self):
-        """容器圆角:开毛玻璃时跟着边距一起变 0,免得角上露出没盖住的模糊。"""
-        return PANEL_RADIUS if self._panel_margin > 0 else 0
-
     def _set_panel_margin(self, margin):
-        """改容器离窗口边缘的留白(圆角、羽化缓存跟着一起调整)。"""
+        """改容器离窗口边缘的留白(羽化缓存跟着失效)。"""
         if self._panel_margin == margin:
             return
-        old_radius = self._panel_radius()
         self._panel_margin = margin
         self.layout().setContentsMargins(margin, margin, margin, margin)
-        if self._panel_radius() != old_radius:
-            self.container.setStyleSheet(build_qss(self.theme, self._panel_radius()))
         self._fade_pixmap = None
         self._fade_key = None
         self.update()
@@ -1844,10 +1839,14 @@ class MainWindow(QWidget):
         不支持时只是没有毛玻璃,不该影响其它功能。窗口标志重建(最小化还原、
         改任务栏样式)会丢掉这个效果,所以 showEvent/changeEvent 里都要补一次。
 
-        糊的是**整个窗口矩形**、而且只能是方的(实测:SetWindowRgn 裁不住它,
+        糊的是**整个窗口矩形**、而且只能是方的:实测 SetWindowRgn 裁不住它,
         DwmEnableBlurBehindWindow 传模糊区域返回 S_OK 却没反应,这台 Win10
-        没有 DWMWA_WINDOW_CORNER_PREFERENCE)。所以开毛玻璃时把容器铺满窗口,
-        让可见背景和模糊区严丝合缝——否则容器内缩多少,模糊就比背景大多少。
+        没有 DWMWA_WINDOW_CORNER_PREFERENCE;连窗口自己的 alpha 都不看
+        (bg_opacity 压到 0 里面照样糊)。所以唯一能做的是让可见背景去对齐它:
+        开毛玻璃时容器铺满窗口(边距 8 → 0),糊区与面板外接矩形逐像素重合,
+        圆角照常保留 —— 四个角各剩约 14 平方像素的残糊,透明度拉满时能看见,
+        但比"内缩 8px"那种整圈大一圈小得多。关掉毛玻璃要复原 8px 边距和
+        边缘羽化(羽化整圈都画在窗口外,paintEvent 里 _panel_margin <= 0 跳过)。
         """
         enabled = bool(self.settings.blur_behind)
         self._set_panel_margin(0 if enabled else PANEL_MARGIN)

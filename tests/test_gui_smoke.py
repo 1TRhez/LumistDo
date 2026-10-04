@@ -723,8 +723,8 @@ def test_frost_flushes_panel_to_window_edges(app, monkeypatch):
         w.layout().activate()
         assert edge_margins() == (0, 0, 0, 0), "开毛玻璃后容器没铺满窗口"
         assert w.container.geometry() == w.rect(), "容器没和窗口对齐,模糊会比背景大一圈"
-        # 模糊区永远是方的,圆角只会让四角露出没被盖住的模糊(调高透明度就是四个亮角)
-        assert "border-radius: 0px" in w.container.styleSheet()
+        # 圆角保留:容器铺满窗口后糊区与面板同大,四角只差十来平方像素的残糊
+        assert "border-radius: 8px" in w.container.styleSheet()
 
         w.settings.blur_behind = False
         w._apply_blur_behind()
