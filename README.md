@@ -23,6 +23,10 @@
 
 ## 界面
 
+<p align="center">
+  <img src="docs/img/icon.png" width="96" alt="LumistDo 图标">
+</p>
+
 **主界面**（默认「深空」配色，顶部栏从左到右：图钉 / 固定位置 / 缩略模式）
 
 ![主界面](docs/img/main.png)
@@ -151,7 +155,8 @@ LumistDo-src/
 ├── version_info.txt         # exe 右键属性里的版本信息
 ├── AGENTS.md                # 给 AI 编码助手看的项目说明
 ├── LICENSE                  # MIT
-├── assets/icon.ico
+├── assets/icon.ico          # 应用图标(多尺寸);icon.svg 是矢量源
+├── assets/icon.svg
 ├── docs/                    # 本 README 用的截图与介绍页
 ├── installer/               # Inno Setup 简中语言文件
 ├── lumistdo/            # 应用包
