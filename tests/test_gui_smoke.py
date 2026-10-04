@@ -687,6 +687,55 @@ def test_blur_behind_toggle_drives_the_window_effect(app, monkeypatch):
         w2.close()
 
 
+def test_frost_flushes_panel_to_window_edges(app, monkeypatch):
+    """开毛玻璃时容器必须铺满窗口。
+
+    模糊的是整个窗口矩形(Win10 上裁不住、也圆不了,详见 AGENTS.md),
+    容器内缩多少,糊出来的那块就比可见背景大多少 —— 所以开模糊就把边距压成 0,
+    关掉再收回来(边缘羽化要那圈环带)。
+    """
+    from lumistdo import blur_behind
+
+    monkeypatch.setattr(
+        blur_behind, "set_blur_behind",
+        lambda hwnd, enabled, tint=(0, 0, 0, 0): True,
+    )
+
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        w = MainWindow(TaskStore(root / "tasks.json"), settings_path=root / "settings.json")
+
+        def edge_margins():
+            m = w.layout().contentsMargins()
+            return (m.left(), m.top(), m.right(), m.bottom())
+
+        w.show()
+        app.processEvents()
+        w.layout().activate()
+
+        assert edge_margins() == (8, 8, 8, 8), "没开毛玻璃时边距该是 8"
+        assert w.container.geometry() == w.rect().adjusted(8, 8, -8, -8)
+        assert "border-radius: 8px" in w.container.styleSheet()
+
+        w.settings.blur_behind = True
+        w._apply_blur_behind()
+        app.processEvents()
+        w.layout().activate()
+        assert edge_margins() == (0, 0, 0, 0), "开毛玻璃后容器没铺满窗口"
+        assert w.container.geometry() == w.rect(), "容器没和窗口对齐,模糊会比背景大一圈"
+        # 模糊区永远是方的,圆角只会让四角露出没被盖住的模糊(调高透明度就是四个亮角)
+        assert "border-radius: 0px" in w.container.styleSheet()
+
+        w.settings.blur_behind = False
+        w._apply_blur_behind()
+        app.processEvents()
+        w.layout().activate()
+        assert edge_margins() == (8, 8, 8, 8), "关掉毛玻璃后边距没收回"
+        assert w.container.geometry() == w.rect().adjusted(8, 8, -8, -8)
+        assert "border-radius: 8px" in w.container.styleSheet()
+        w.close()
+
+
 def test_custom_color_window_edits_colors_and_flags_custom(app):
     """自定义配色窗口:改色即时写进设置、主窗口与设置窗口色块同步、高亮转自定义。"""
     with tempfile.TemporaryDirectory() as d:

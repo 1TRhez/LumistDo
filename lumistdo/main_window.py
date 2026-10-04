@@ -69,8 +69,16 @@ from .blur_behind import apply_to_widget
 from . import autostart
 from . import global_hotkeys
 
-def build_qss(t: Theme) -> str:
-    """根据主题动态生成 QSS。"""
+PANEL_MARGIN = 8    # 容器离窗口边缘的留白(边缘羽化就画在这圈环带里)
+PANEL_RADIUS = 8    # 容器圆角(开毛玻璃时会被压成 0,理由见 build_qss)
+
+
+def build_qss(t: Theme, radius: int = PANEL_RADIUS) -> str:
+    """根据主题动态生成 QSS。
+
+    radius 是容器圆角:开毛玻璃时传 0(模糊区永远是方的且裁不住,圆角只会让
+    四个角露出没被盖住的模糊 —— 透明度调高时就是四个明显的亮角)。
+    """
     bg = t.bg_color
     # 背景用垂直渐变(三档停靠点,见 app_settings.container_qss 的说明):
     # 两档渐变要跨满整个窗口高度,8bit 量化下会出现一条条水平色带。
@@ -91,7 +99,7 @@ QFrame#container {{
         stop:0.45 rgba({bg.red()}, {bg.green()}, {bg.blue()}, {op}),
         stop:1 rgba({t.bg_bottom_color.red()}, {t.bg_bottom_color.green()}, {t.bg_bottom_color.blue()}, {t.bg_bottom_color.alpha()}));
     border: none;
-    border-radius: 8px;
+    border-radius: {radius}px;
 }}
 QFrame#sectionSep {{
     background: rgba({sep.red()}, {sep.green()}, {sep.blue()}, {sep.alpha()});
@@ -582,6 +590,7 @@ class MainWindow(QWidget):
         self._task_drag_order_changed = False
         self._fade_pixmap = None   # 边缘羽化缓存,避免每次重绘都画 14 层矢量图形
         self._fade_key = None
+        self._panel_margin = PANEL_MARGIN  # 当前容器外边距(开毛玻璃时会被压成 0)
         self._task_drag_scroll_timer = QTimer(self)
         self._task_drag_scroll_timer.setInterval(40)
         self._task_drag_scroll_timer.timeout.connect(self._auto_scroll_task_drag)
@@ -597,11 +606,11 @@ class MainWindow(QWidget):
         self.resize(320, 460)
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(8, 8, 8, 8)
+        outer.setContentsMargins(PANEL_MARGIN, PANEL_MARGIN, PANEL_MARGIN, PANEL_MARGIN)
 
         self.container = QFrame()
         self.container.setObjectName("container")
-        self.container.setStyleSheet(build_qss(self.theme))
+        self.container.setStyleSheet(build_qss(self.theme, self._panel_radius()))
         # 容器内固定箭头光标,避免被窗口边缘的 resize 光标继承
         self.container.setCursor(QCursor(Qt.ArrowCursor))
         outer.addWidget(self.container)
@@ -807,6 +816,8 @@ class MainWindow(QWidget):
         super().paintEvent(event)
         if self.width() <= 0 or self.height() <= 0:
             return
+        if self._panel_margin <= 0:
+            return  # 容器铺满窗口(开毛玻璃),羽化环带没有落脚处,整圈都在窗口外
         p = QPainter(self)
         p.drawPixmap(0, 0, self._edge_fade_pixmap())
         p.end()
@@ -1337,7 +1348,7 @@ class MainWindow(QWidget):
         self.theme = self.settings.to_theme()
         t = self.theme
         # 容器 QSS
-        self.container.setStyleSheet(build_qss(t))
+        self.container.setStyleSheet(build_qss(t, self._panel_radius()))
         # 全局字体
         self.setFont(QFont(t.font_family, 10))
         # 锁头
@@ -1809,16 +1820,40 @@ class MainWindow(QWidget):
         self._settings_save_timer.start()
 
     # ---- 真·毛玻璃 ----
+    def _panel_radius(self):
+        """容器圆角:开毛玻璃时跟着边距一起变 0,免得角上露出没盖住的模糊。"""
+        return PANEL_RADIUS if self._panel_margin > 0 else 0
+
+    def _set_panel_margin(self, margin):
+        """改容器离窗口边缘的留白(圆角、羽化缓存跟着一起调整)。"""
+        if self._panel_margin == margin:
+            return
+        old_radius = self._panel_radius()
+        self._panel_margin = margin
+        self.layout().setContentsMargins(margin, margin, margin, margin)
+        if self._panel_radius() != old_radius:
+            self.container.setStyleSheet(build_qss(self.theme, self._panel_radius()))
+        self._fade_pixmap = None
+        self._fade_key = None
+        self.update()
+
     def _apply_blur_behind(self):
         """按设置开关窗口背后的模糊(真·毛玻璃)。
 
         只是把设置转给 blur_behind 模块,失败静默——这个 API 未公开,
         不支持时只是没有毛玻璃,不该影响其它功能。窗口标志重建(最小化还原、
         改任务栏样式)会丢掉这个效果,所以 showEvent/changeEvent 里都要补一次。
+
+        糊的是**整个窗口矩形**、而且只能是方的(实测:SetWindowRgn 裁不住它,
+        DwmEnableBlurBehindWindow 传模糊区域返回 S_OK 却没反应,这台 Win10
+        没有 DWMWA_WINDOW_CORNER_PREFERENCE)。所以开毛玻璃时把容器铺满窗口,
+        让可见背景和模糊区严丝合缝——否则容器内缩多少,模糊就比背景大多少。
         """
+        enabled = bool(self.settings.blur_behind)
+        self._set_panel_margin(0 if enabled else PANEL_MARGIN)
         if not self.isVisible():
             return False
-        return apply_to_widget(self, bool(self.settings.blur_behind))
+        return apply_to_widget(self, enabled)
 
     # ---- 任务栏图标与系统托盘 ----
     def _apply_taskbar_style(self):

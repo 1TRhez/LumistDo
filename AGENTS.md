@@ -98,8 +98,9 @@ python -m PyInstaller lumistdo.spec --noconfirm
 - **任务对象同一引用**：`TaskItem.task` 与 `store.tasks` 中的对象是同一个，UI 改文本时本地与 store 同步。
 - **完成动作的边界**：空任务被点完成时直接删除，不进已完成栏（避免空任务堆积）。
 - **圆点不抢焦点**：`TaskItem.dot` 设 `Qt.NoFocus`，点完成时不会触发文本框的 `editingFinished`，避免完成与保存逻辑冲突。
-- **半透明 + 圆角**：窗口 `WA_TranslucentBackground` + 容器 `rgba` 背景，文字保持不透明清晰；圆角外区域透明。
-- **毛玻璃只有一种做法真的有效**：要"糊掉背后"必须调未公开的 `SetWindowCompositionAttribute` + `ACCENT_ENABLE_BLURBEHIND`(3)（`blur_behind.py`）。实测这台 Win11 上 `ACCENT_ENABLE_ACRYLICBLURBEHIND`(4) 与 `ACCENT_ENABLE_HOSTBACKDROP`(5) 都**返回成功但毫无效果**，已废弃的 `DwmEnableBlurBehindWindow` 同样不生效——判断有没有效只能看画面，不能看返回值。`GradientColor` 是 ABGR（低字节 alpha），不是 ARGB。窗口标志重建（最小化还原、改任务栏样式）会丢掉效果，所以 `showEvent` / `changeEvent` 里都要补一次 `_apply_blur_behind()`。模糊是 DWM 合成的，`PrintWindow` / `grab()` 都抓不到，验收必须整屏抓图。
+- **半透明 + 圆角**：窗口 `WA_TranslucentBackground` + 容器 `rgba` 背景，文字保持不透明清晰；圆角外区域透明（只有开毛玻璃时例外，见下面那条）。
+- **毛玻璃只有一种做法真的有效**：要"糊掉背后"必须调未公开的 `SetWindowCompositionAttribute` + `ACCENT_ENABLE_BLURBEHIND`(3)（`blur_behind.py`）。实测这台机器是 **Windows 10 Pro 22H2（19045）**，`ACCENT_ENABLE_ACRYLICBLURBEHIND`(4) 与 `ACCENT_ENABLE_HOSTBACKDROP`(5) 都**返回成功但毫无效果**，已废弃的 `DwmEnableBlurBehindWindow` 同样不生效——判断有没有效只能看画面，不能看返回值。`GradientColor` 是 ABGR（低字节 alpha），不是 ARGB。窗口标志重建（最小化还原、改任务栏样式）会丢掉效果，所以 `showEvent` / `changeEvent` 里都要补一次 `_apply_blur_behind()`。模糊是 DWM 合成的，`PrintWindow` / `grab()` 都抓不到，验收必须整屏抓图。
+- **模糊区永远是"窗口矩形"、永远方角——只能反过来让容器去对齐它**：实测（Win10 Pro 22H2 19045）四种"把模糊裁/圆起来"的办法全部无效：`SetWindowRgn(CreateRoundRectRgn(...))` 确实把窗口区域设上了（返回 1、`GetWindowRgn=3` COMPLEXREGION），但**模糊纹丝不动**；设完区域再重设 `AccentState=3` 无效；`DwmEnableBlurBehindWindow` + `DWM_BB_BLURREGION` 返回 `S_OK` 却什么都不做；`DWMWA_WINDOW_CORNER_PREFERENCE`(33) 在这台机器上直接 `E_INVALIDARG`（`0x80070067`，Win11 才有）。所以 `MainWindow._apply_blur_behind()` 在开毛玻璃时把容器外边距压成 0（`_set_panel_margin`）、圆角也压成 0（`_panel_radius()` → `build_qss(theme, radius)`）：容器内缩多少，糊出来的那块就比可见背景大多少——用户看到的就是"毛玻璃比背景大一圈、还没有圆角"。关掉毛玻璃要复原 8px 边距 + 8px 圆角 + 边缘羽化（羽化整圈都画在窗口外，`paintEvent` 里 `_panel_margin <= 0` 时直接跳过）。**改窗口大小时记住"窗口矩形 == 可见背景"这个前提**。实验脚本 `lumistdo-dev/probe_blur_align.py`，验收脚本 `lumistdo-dev/probe_glass_fit.py`（源码内建真主窗口，能直接读 layout 边距）与 `lumistdo-dev/probe_glass_fit_installed.py`（跑装好的 exe，只能量像素；背后摆棋盘/纯色底，**配对取像素时必须同在内或同在外**——跨边界取点量出的是中间值，会把人骗了；透明度过 240 时四个角不许漏出桌面）。
 - **快捷键默认走系统级热键,不是 QShortcut**：`QShortcut` 是窗口级绑定,主窗口没被选中就完全不响应,而「层级/固定/缩略」这三个动作天生是"在别的窗口里顺手拨一下"的操作,所以走 `RegisterHotKey`(`lumistdo/global_hotkeys.py`)。五条必须记住的：
   1. **`UnregisterHotKey` 必须传注册时那个 hwnd**。它是按"(窗口, id)"登记的,传 `None` 只对"注册时也没传窗口"的热键有效;传错会**静默失败并留下孤儿热键**——系统照样投 `WM_HOTKEY`(id 是我们发的),但 `_ids` 已清空,于是"按键有反应"变成"什么都没发生"。真踩过:窗口被 Qt 重建后重新 `apply()`,先注销失败、再注册失败(1409),最后只剩一个没人认领的热键。
   2. **一次按键系统会投两条 `WM_HOTKEY`**,所以 `handle_hotkey` 里有一层 `_REPEAT_GUARD_SECONDS = 0.3` 去抖。不去抖的话层级这种循环动作连切两下正好回到原位,用户看到的就是"按了没反应"。（实测脚本:`lumistdo-dev/probe_hotkey_downup.py`,只注入"按下"就收到 2 条、"抬起"0 条。）
@@ -133,7 +134,7 @@ python -m PyInstaller lumistdo.spec --noconfirm
 
 ## 环境备注
 
-- 操作系统：Windows 11。命令在 PowerShell（`pwsh`）里跑：路径带空格要引号，环境变量用 `$env:VAR`。
+- 操作系统：**Windows 10 Pro 22H2（build 19045）**——别按 Win11 的 API 写代码（没有 `DWMWA_WINDOW_CORNER_PREFERENCE`、没有系统级 Mica/亚克力背景）。命令在 PowerShell（`pwsh`）里跑：路径带空格要引号，环境变量用 `$env:VAR`。
 - GUI 测试在无头环境用 `$env:QT_QPA_PLATFORM="offscreen"`，不弹真实窗口；中文输出建议同时设 `$env:PYTHONIOENCODING="utf-8"` 与 `$env:PYTHONUTF8="1"`。
 - 测试必须给 `MainWindow` 传 `settings_path`（临时目录），否则会去读开发机真实的 `%APPDATA%\LumistDo\settings.json`，结果随本机状态漂移。
 - **不要为了"试探"而运行 Inno Setup 卸载器**：它不弹确认就直接卸载并删除用户数据（本项目历史上真的丢过一次用户任务）。
