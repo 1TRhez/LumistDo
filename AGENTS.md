@@ -120,7 +120,7 @@ python -m PyInstaller lumistdo.spec --noconfirm
 - **透明度特效必须丢引用**：Qt 的 `widget.setGraphicsEffect(None)` 会**直接 delete** 那个 `QGraphicsOpacityEffect`，缓存的引用立刻变成野指针（`Internal C++ object already deleted`）。每次摘掉特效后都要 `_forget_effect(name)` 清缓存，下次重建。
 - **任务栏图标重登记要推迟**：`_apply_taskbar_style()` 里的 `hide()`+`show()` 若同步执行，会被 `showEvent` 排的同一个回调再触发，把 Qt 的可见性状态搞乱（表现为"窗口再也显示不出来"）。所以走 `QTimer.singleShot(0, self._reregister_for_taskbar)`。
 - **自绘图标按钮要设 `accessibleName`**：否则 UI 自动化/无障碍工具读到空名字，按名字点不到（`_reset_btn` 就踩过）。
-- **数据目录可迁移**：`app_paths.data_dir()` 每次取用都跑一次迁移——先搬早期版本用过的 `%APPDATA%\LumistDo`（新目录已有同名文件则不覆盖，搬完删旧文件），再搬便携版的程序目录内 `.lumistdo`（只复制不删）。迁移失败静默，绝不能挡住启动。
+- **数据目录可迁移**：`app_paths.data_dir()` 每次取用都跑一次迁移——搬便携版的程序目录内 `.lumistdo`（只复制不删）。迁移失败静默，绝不能挡住启动。
 - **背景用三档垂直渐变**：容器背景由 `app_settings.container_qss()` 统一生成（三个窗口共用）。两档渐变要把色差摊满整个窗口高度，8bit 量化下会出现一条条水平色带，所以用上/中/下三档停靠点把色差压小。
 - **预设是"名字"不是颜色值**：`settings_dialog.PRESETS` 的 `name`（中文原名）同时是持久化标识，界面显示走 `i18n.preset_name()`；`AppSettings.appearance_preset` 只用于设置窗口高亮，不影响渲染。
 - **固定灰也要跟着明暗走**：`Theme.fixed_title_color` / `fixed_footer_color` 以前是硬编码常量，浅色主题下等于看不见；现在由 `Theme._derive()` 按 `is_dark` 给出（深色 `#9a9aa5`/`#8a8a94`，浅色 `#5c5c66`/`#63636d`），所以不要再往 `PRESETS` 字典里塞这两个键。

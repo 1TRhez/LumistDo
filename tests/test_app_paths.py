@@ -26,32 +26,6 @@ def test_data_dir_under_appdata(monkeypatch, tmp_path):
     assert data_dir() == tmp_path / "LumistDo"
 
 
-def test_migrates_legacy_appdata_dir(monkeypatch, tmp_path):
-    """早期版本目录(%APPDATA%\\LumistDo)的数据在首次启动时搬到新目录。"""
-    appdata = tmp_path / "appdata"
-    old = appdata / "LumistDo"
-    old.mkdir(parents=True)
-    (old / "tasks.json").write_text("[1]", encoding="utf-8")
-    (old / "settings.json").write_text("{}", encoding="utf-8")
-    monkeypatch.setenv("APPDATA", str(appdata))
-    monkeypatch.setattr(app_paths, "software_dir", lambda: tmp_path / "prog")
-
-    target = data_dir()
-    assert target == appdata / "LumistDo"
-    assert (target / "tasks.json").read_text(encoding="utf-8") == "[1]"
-    assert (target / "settings.json").exists()
-    # 搬完删掉旧文件,下次启动不会重复搬
-    assert not (old / "tasks.json").exists()
-    assert not (old / "settings.json").exists()
-
-    # 新目录已有数据时以新目录为准,旧文件照样清掉
-    (old / "tasks.json").write_text("[old]", encoding="utf-8")
-    (target / "tasks.json").write_text("[2]", encoding="utf-8")
-    data_dir()
-    assert (target / "tasks.json").read_text(encoding="utf-8") == "[2]"
-    assert not (old / "tasks.json").exists()
-
-
 def test_migrates_legacy_portable_data_once(monkeypatch, tmp_path):
     """新数据目录为空且程序目录旁有旧版数据时,复制迁入且不覆盖已有数据。"""
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
