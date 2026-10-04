@@ -327,7 +327,7 @@ def test_settings_window_checks_follow_settings(app):
 
 
 def test_settings_window_top_and_bottom_are_mutually_exclusive(app):
-    """选置底自动取消置顶,并以信号把置底需求回传主窗口。"""
+    """选置底自动取消置顶,并把具体层级名回传主窗口。"""
     settings = AppSettings(always_on_top=True)
     window = SettingsWindow(settings)
     emitted = []
@@ -338,13 +338,14 @@ def test_settings_window_top_and_bottom_are_mutually_exclusive(app):
     assert settings.always_on_bottom is True
     assert settings.always_on_top is False
     assert window._layer_radios["top"].isChecked() is False
-    assert emitted == [True]
+    assert emitted == ["bottom"]
 
     # 反向:选回置顶会自动取消置底
     window._layer_radios["top"].setChecked(True)
     assert settings.always_on_top is True
     assert settings.always_on_bottom is False
     assert window._layer_radios["bottom"].isChecked() is False
+    assert emitted == ["bottom", "top"]
 
 
 def test_settings_window_emits_position_fixed_signal(app):

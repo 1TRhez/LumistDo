@@ -1220,7 +1220,7 @@ class MainWindow(QWidget):
             return
         win = SettingsWindow(self.settings, parent=self)
         win.changed.connect(self._on_settings_changed)
-        win.z_order_changed.connect(self.set_always_on_bottom)
+        win.z_order_changed.connect(self.set_layer)
         win.position_fixed_changed.connect(self.set_position_fixed)
         win.taskbar_changed.connect(self.set_hide_from_taskbar)
         win.autostart_changed.connect(self.set_autostart)
@@ -1650,11 +1650,41 @@ class MainWindow(QWidget):
         )
         self.header.pin_btn.set_mode(mode)
 
+    def _sync_layer_checks(self):
+        """把设置窗口里的层级单选项同步到当前层级。
+
+        一律按当前状态算,不再由调用方猜是哪一层 —— 之前置顶分支写死
+        同步 "top"、置底分支写死同步 "normal",选「置于最上层」时
+        后一次调用就把单选项弹回了「普通层级」。
+        """
+        win = getattr(self, "_settings_win", None)
+        if win is None:
+            return
+        mode = "top" if self._always_on_top else (
+            "bottom" if self._always_on_bottom else "normal"
+        )
+        win.set_z_order_checks(mode)
+
     def cycle_z_order(self, mode):
         """图钉点击:在 置顶 -> 置底 -> 普通 三态间循环。"""
         if mode == "top":
             self.set_always_on_top(True)
         elif mode == "bottom":
+            self.set_always_on_bottom(True)
+        else:
+            self.set_always_on_bottom(False)
+            self.set_always_on_top(False)
+
+    def set_layer(self, name):
+        """设置窗口里选了窗口层级("top"/"bottom"/"normal")。
+
+        必须按名字分派:以前只回传"要不要置底"的布尔值,选「置于最上层」时
+        回传 False 被当成"回到普通层级",`set_always_on_bottom(False)` 又把
+        单选项弹回「普通层级」——用户看到的就是"点了没反应"。
+        """
+        if name == "top":
+            self.set_always_on_top(True)
+        elif name == "bottom":
             self.set_always_on_bottom(True)
         else:
             self.set_always_on_bottom(False)
@@ -1675,9 +1705,7 @@ class MainWindow(QWidget):
             self._always_on_bottom = False
             self.settings.always_on_bottom = False
         self._sync_pin_btn()
-        win = getattr(self, "_settings_win", None)
-        if win is not None:
-            win.set_z_order_checks("top", None)
+        self._sync_layer_checks()
         if changed and not self._apply_z_order():
             # 非 Windows(或窗口尚未显示):重建窗口标志兼容
             flags = Qt.FramelessWindowHint
@@ -1704,9 +1732,7 @@ class MainWindow(QWidget):
             self._always_on_top = False
             self.settings.always_on_top = False
         self._sync_pin_btn()
-        win = getattr(self, "_settings_win", None)
-        if win is not None:
-            win.set_z_order_checks("bottom" if on_bottom else "normal", None)
+        self._sync_layer_checks()
         self._apply_z_order()  # 开关置底后立刻按新层级校正
         self._settings_dirty = True
         self._settings_save_timer.start()
@@ -1836,7 +1862,7 @@ class MainWindow(QWidget):
             self._apply_edge_cursor(None)
         win = getattr(self, "_settings_win", None)
         if win is not None:
-            win.set_z_order_checks(None, fixed)
+            win.set_fixed_check(fixed)
         self._settings_dirty = True
         self._settings_save_timer.start()
 

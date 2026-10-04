@@ -1762,6 +1762,42 @@ def test_settings_window_checks_sync_with_header_buttons(app):
         assert win._fixed_check.isChecked() is False
 
 
+def test_settings_layer_top_click_sticks(app):
+    """设置里点「置于最上层」必须真的选上(回归:点了会被弹回「普通层级」)。
+
+    以前 `z_order_changed` 只回传"要不要置底"的布尔值,选置顶时回传 False 被
+    主窗口当成"回到普通层级",于是单选又被弹回「普通层级」——用户看到的就是
+    "置顶点击不了"。
+    """
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        store = TaskStore(root / "tasks.json")
+        w = MainWindow(store, settings_path=root / "settings.json")
+        w.show()
+        app.processEvents()
+        w.open_settings()
+        app.processEvents()
+
+        win = w._settings_win
+        assert win._layer_radios["normal"].isChecked() is True   # 起点:普通层级
+
+        win._layer_radios["top"].setChecked(True)
+        app.processEvents()
+
+        assert win._layer_radios["top"].isChecked() is True
+        assert win._layer_radios["normal"].isChecked() is False
+        assert w._always_on_top is True
+        assert w.settings.always_on_top is True
+        assert w.header.pin_btn._mode == "top"
+
+        # 再选回普通层级也要留住
+        win._layer_radios["normal"].setChecked(True)
+        app.processEvents()
+        assert win._layer_radios["normal"].isChecked() is True
+        assert w._always_on_top is False
+        assert w.settings.always_on_top is False
+
+
 def test_header_menu_contains_quit_and_minimize(app, monkeypatch):
     """顶部栏右键菜单含退出与最小化(替换模块内 QMenu 避免真弹菜单)。"""
     from lumistdo import main_window as mw

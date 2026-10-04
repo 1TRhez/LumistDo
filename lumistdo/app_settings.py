@@ -210,6 +210,47 @@ def container_qss(theme: Theme, selector: str, radius: float) -> str:
     )
 
 
+def radio_qss(theme: Theme) -> str:
+    """单选圆点的样式(跟随明暗主题)。
+
+    用 radial-gradient 画"圆环 + 实心圆点",而不是 border 加粗:
+    15px 的方块配 border-radius:8px 四角各差半个像素,量化出来是个圆角方框;
+    border 加粗做出来的也是"环",底色会从环里透出来一块,看着像方块套方块。
+    渐变由圆心铺开,选中态就是干干净净一个圆点。
+    """
+    if theme.is_dark:
+        ring = "rgba(255, 255, 255, 55)"
+        fill = "rgba(255, 255, 255, 10)"
+    else:
+        ring = "rgba(0, 0, 0, 60)"
+        fill = "rgba(0, 0, 0, 10)"
+    a = theme.accent_color
+    accent = f"rgb({a.red()}, {a.green()}, {a.blue()})"
+    return (
+        "QRadioButton {"
+        "  color: #c8c8d2;"
+        "  spacing: 8px;"
+        "}"
+        "QRadioButton::indicator {"
+        "  width: 16px;"
+        "  height: 16px;"
+        "  border: 1px solid " + ring + ";"
+        "  border-radius: 8px;"
+        "  background: " + fill + ";"
+        "}"
+        "QRadioButton::indicator:hover {"
+        "  border-color: " + accent + ";"
+        "}"
+        "QRadioButton::indicator:checked {"
+        "  border: 1px solid " + accent + ";"
+        "  background: qradialgradient(cx:0.5, cy:0.5, radius:0.5,"
+        "    fx:0.5, fy:0.5,"
+        "    stop:0 " + accent + ", stop:0.5 " + accent + ","
+        "    stop:0.62 transparent, stop:1 transparent);"
+        "}"
+    )
+
+
 @dataclass
 class AppSettings:
     """用户设置,持久化到 JSON。默认外观为预设「深空」。"""

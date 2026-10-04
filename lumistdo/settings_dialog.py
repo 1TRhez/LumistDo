@@ -24,7 +24,7 @@ from PySide6.QtGui import (
 from . import dialogs
 from .app_settings import (
     AppSettings, CUSTOM_PRESET, DEFAULT_PRESET, MAX_TITLE_LENGTH, MIN_BG_OPACITY,
-    Theme, container_qss,
+    Theme, container_qss, radio_qss,
 )
 from .floating_window import (
     CONTAINER_RADIUS, OUTER_MARGIN, CloseButton, custom_preset_glyph,
@@ -131,20 +131,7 @@ QRadioButton {
     color: #c8c8d2;
     spacing: 8px;
 }
-QRadioButton::indicator {
-    width: 15px;
-    height: 15px;
-    border: 1px solid rgba(255,255,255,40);
-    border-radius: 8px;
-    background: rgba(255,255,255,8);
-}
-QRadioButton::indicator:hover {
-    border-color: #5ea0ff;
-}
-QRadioButton::indicator:checked {
-    background: #5ea0ff;
-    border: 4px solid rgba(30,31,36,255);
-}
+/* 圆点本体由 radio_qss(theme) 在 apply_theme 里按明暗主题给,不写死在这里 */
 QComboBox {
     background: rgba(255,255,255,8);
     border: 1px solid rgba(255,255,255,20);
@@ -551,7 +538,7 @@ class CustomColorWindow(QWidget):
 class SettingsWindow(QWidget):
     """外观设置独立窗口(非模态,实时预览)。"""
     changed = Signal()  # 任何设置变动时发出,主窗口据此实时刷新
-    z_order_changed = Signal(bool)       # 置底开关:需即时改窗口层级,单独回传
+    z_order_changed = Signal(str)        # 窗口层级:回传 "top"/"bottom"/"normal"
     position_fixed_changed = Signal(bool)  # 固定开关:同样需即时生效
     taskbar_changed = Signal(bool)       # 任务栏图标开关:需即时改扩展样式
     autostart_changed = Signal(bool)     # 开机自启动:需即时写注册表
@@ -826,6 +813,8 @@ class SettingsWindow(QWidget):
         self.container.setStyleSheet(
             container_qss(theme, "QFrame#settingsContainer", CONTAINER_RADIUS),
         )
+        # 单选圆点:按明暗主题重算(浅色背景下白环等于看不见)
+        self.setStyleSheet(WINDOW_QSS + radio_qss(theme))
         self.setFont(QFont(theme.font_family, 10))
         self._reset_btn.setIcon(QIcon(reset_glyph(16, QColor(theme.text_color))))
         self._fade_pixmap = None
@@ -864,33 +853,35 @@ class SettingsWindow(QWidget):
 
     # ---- 窗口层级(三选一,回传主窗口即时改层级)与固定 ----
     def _on_layer_selected(self, name, checked):
-        """层级单选项被选中:写设置并把「置底」状态回传主窗口。
+        """层级单选项被选中:写设置并把层级回传主窗口。
 
-        置顶与置底互斥由单选的互斥性天然保证:选中一项即取消其余两项。
+        传的是**具体层级名**而不是"要不要置底"的布尔值:主窗口收到后
+        按同一个名字回同步单选项,才不会把用户刚点的「置于最上层」弹回「普通层级」。
         """
         if not checked:
             return
         self._settings.always_on_top = name == "top"
         self._settings.always_on_bottom = name == "bottom"
-        self.z_order_changed.emit(name == "bottom")
+        self.z_order_changed.emit(name)
         self.changed.emit()
 
-    def set_z_order_checks(self, layer=None, fixed=None):
-        """主窗口改动层级/固定态后回同步(仅主窗口调用,防止回环)。
+    def set_z_order_checks(self, layer):
+        """主窗口改动层级后回同步单选项(仅主窗口调用,防止回环)。"""
+        if layer is None:
+            return
+        radio = self._layer_radios.get(layer)
+        if radio is not None and not radio.isChecked():
+            radio.blockSignals(True)
+            radio.setChecked(True)
+            radio.blockSignals(False)
 
-        layer 取 "top" / "bottom" / "normal",由主窗口直接给出 ——
-        不再从 settings 反推,否则主窗口刚改完还没落盘的状态会同步错。
-        """
-        if layer is not None:
-            radio = self._layer_radios.get(layer)
-            if radio is not None and not radio.isChecked():
-                radio.blockSignals(True)
-                radio.setChecked(True)
-                radio.blockSignals(False)
-        if fixed is not None and self._fixed_check.isChecked() != fixed:
-            self._fixed_check.blockSignals(True)
-            self._fixed_check.setChecked(fixed)
-            self._fixed_check.blockSignals(False)
+    def set_fixed_check(self, fixed):
+        """主窗口改「固定窗口位置」后回同步勾选框(仅主窗口调用)。"""
+        if self._fixed_check.isChecked() == fixed:
+            return
+        self._fixed_check.blockSignals(True)
+        self._fixed_check.setChecked(fixed)
+        self._fixed_check.blockSignals(False)
 
     def _on_position_fixed_toggled(self, checked):
         self._settings.position_fixed = checked
@@ -992,11 +983,12 @@ class SettingsWindow(QWidget):
         self._op_label.setText(f"{int(s.bg_opacity / 255 * 100)}%")
         self._refresh_preset_selection()
         self.refresh_custom_colors()
-        self.set_z_order_checks("normal", False)
+        self.set_z_order_checks("normal")
+        self.set_fixed_check(False)
         self.set_taskbar_check(False)
         self.title_changed.emit(s.title_text)
         self.changed.emit()
-        # 交给主窗口把缩略模式/隐藏清单/托盘图标这些界面状态一起收掉
+        # 交给主窗口把缩略模式/托盘图标这些界面状态一起收掉
         self.reset_requested.emit()
         dialogs.information(self, product_name(), t("settings.reset_done"))
 
