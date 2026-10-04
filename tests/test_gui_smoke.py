@@ -688,11 +688,12 @@ def test_blur_behind_toggle_drives_the_window_effect(app, monkeypatch):
 
 
 def test_frost_flushes_panel_to_window_edges(app, monkeypatch):
-    """开毛玻璃时容器必须铺满窗口。
+    """开毛玻璃时容器必须铺满窗口,羽化改由附属的光环窗口去画。
 
     模糊的是整个窗口矩形(Win10 上裁不住、也圆不了,详见 AGENTS.md),
     容器内缩多少,糊出来的那块就比可见背景大多少 —— 所以开模糊就把边距压成 0,
-    关掉再收回来(边缘羽化要那圈环带)。
+    关掉再收回来(边缘羽化要那圈环带)。羽化必须在窗口外面,窗口里没地方画,
+    于是开模糊时交给 `edge_halo.EdgeHalo`(比窗口四周各宽 8px 的透明附属窗口)。
     """
     from lumistdo import blur_behind
 
@@ -716,6 +717,7 @@ def test_frost_flushes_panel_to_window_edges(app, monkeypatch):
         assert edge_margins() == (8, 8, 8, 8), "没开毛玻璃时边距该是 8"
         assert w.container.geometry() == w.rect().adjusted(8, 8, -8, -8)
         assert "border-radius: 8px" in w.container.styleSheet()
+        assert not w._halo.isVisible(), "没开毛玻璃时羽化自己画,光环不该露面"
 
         w.settings.blur_behind = True
         w._apply_blur_behind()
@@ -725,6 +727,14 @@ def test_frost_flushes_panel_to_window_edges(app, monkeypatch):
         assert w.container.geometry() == w.rect(), "容器没和窗口对齐,模糊会比背景大一圈"
         # 圆角保留:容器铺满窗口后糊区与面板同大,四角只差十来平方像素的残糊
         assert "border-radius: 8px" in w.container.styleSheet()
+        # 羽化交给光环:它比窗口四周各宽 8px(糊区仍然只在窗口里)
+        assert w._halo.isVisible(), "开毛玻璃后羽化没交给光环窗口"
+        assert w._halo.geometry() == w.frameGeometry().adjusted(-8, -8, 8, 8)
+
+        # 挪窗口时光环要同步跟过去(拖动时是同一轮手动调的,这里验 moveEvent)
+        w.move(w.x() + 40, w.y() + 25)
+        app.processEvents()
+        assert w._halo.geometry() == w.frameGeometry().adjusted(-8, -8, 8, 8)
 
         w.settings.blur_behind = False
         w._apply_blur_behind()
@@ -733,6 +743,7 @@ def test_frost_flushes_panel_to_window_edges(app, monkeypatch):
         assert edge_margins() == (8, 8, 8, 8), "关掉毛玻璃后边距没收回"
         assert w.container.geometry() == w.rect().adjusted(8, 8, -8, -8)
         assert "border-radius: 8px" in w.container.styleSheet()
+        assert not w._halo.isVisible(), "关掉毛玻璃后光环该收起(羽化回到窗口内自绘)"
         w.close()
 
 

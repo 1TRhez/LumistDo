@@ -66,6 +66,8 @@ from .keybind_window import KeybindWindow
 from .history_window import HistoryWindow
 from .tray_icon import TrayIcon
 from .blur_behind import apply_to_widget
+from .edge_fade import paint_edge_fade
+from .edge_halo import EdgeHalo
 from . import autostart
 from . import global_hotkeys
 
@@ -617,6 +619,9 @@ class MainWindow(QWidget):
         self.container.setCursor(QCursor(Qt.ArrowCursor))
         outer.addWidget(self.container)
 
+        # 开毛玻璃时容器铺满窗口,羽化那一圈得画在窗口外面 —— 交给这个附属窗口
+        self._halo = EdgeHalo(self, self.theme, PANEL_MARGIN)
+
         v = QVBoxLayout(self.container)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
@@ -855,30 +860,9 @@ class MainWindow(QWidget):
     def _paint_edge_fade(self, p):
         """容器边缘向外逐渐虚化(羽化),替代硬阴影。
 
-        从容器边缘向外画多层同心圆角矩形的"环带"(外扩矩形减去容器矩形),
-        越往外 alpha 越低,形成背景色→透明的柔和过渡。
-        环带画法保证容器内部不被叠加任何颜色,透明度与滑杆值一致。
+        画法在 `edge_fade.paint_edge_fade`(毛玻璃时的光环窗口共用同一套环带)。
         """
-        cr = QRectF(self.container.geometry())
-        radius = 8.0
-        fade = 7.0       # 虚化区域宽度(略小于 8px 外边距)
-        layers = 14
-        base = self.theme.edge_fade_color
-        # 羽化强度随背景透明度等比缩放:低透明度时不再残留一圈可见薄雾
-        fade_strength = self.theme.bg_opacity / 255.0
-        p.setPen(Qt.NoPen)
-        inner = QPainterPath()
-        inner.addRoundedRect(cr, radius, radius)
-        for i in range(layers, 0, -1):
-            expand = fade * i / layers
-            # 越贴近容器边缘越不透明,最外层趋近全透明
-            alpha = int(56 * fade_strength * (1.0 - (i - 1) / layers))
-            rect = cr.adjusted(-expand, -expand, expand, expand)
-            r = radius + expand
-            ring = QPainterPath()
-            ring.addRoundedRect(rect, r, r)
-            p.setBrush(QColor(base.red(), base.green(), base.blue(), alpha))
-            p.drawPath(ring.subtracted(inner))  # 只画容器外的那圈环
+        paint_edge_fade(p, QRectF(self.container.geometry()), self.theme)
 
     # ---- 加载 ----
     def _update_empty_hint(self):
@@ -1369,8 +1353,10 @@ class MainWindow(QWidget):
             item.set_theme(t)
         # 已完成面板
         self.completed_panel.set_theme(t)
-        # 主题变了,羽化缓存失效
+        # 主题变了,羽化缓存失效(光环窗口吃同一份主题)
         self._fade_pixmap = None
+        self._halo.set_theme(t)
+        self._sync_halo()
         self._fade_key = None
         # 边缘虚化重画
         self.update()
@@ -1717,6 +1703,7 @@ class MainWindow(QWidget):
         if event.type() == QEvent.WindowStateChange:
             QTimer.singleShot(0, self._apply_taskbar_style)
             QTimer.singleShot(0, self._apply_blur_behind)
+            QTimer.singleShot(0, self._sync_halo)
 
     def hideEvent(self, event):
         """窗口被隐藏(托盘收起/最小化)时立刻落盘。
@@ -1725,6 +1712,7 @@ class MainWindow(QWidget):
         程序或让电脑休眠,来不及写的改动会整批丢掉,所以这里先刷一次盘。
         """
         super().hideEvent(event)
+        self._halo.hide()  # 主窗藏了,附属的光环必须跟着消失
         self._save_settings_on_quit()
 
     def _sync_pin_btn(self):
@@ -1823,14 +1811,39 @@ class MainWindow(QWidget):
 
     # ---- 真·毛玻璃 ----
     def _set_panel_margin(self, margin):
-        """改容器离窗口边缘的留白(羽化缓存跟着失效)。"""
+        """改容器离窗口边缘的留白(羽化缓存跟着失效,光环窗口跟着搬家)。"""
         if self._panel_margin == margin:
             return
         self._panel_margin = margin
         self.layout().setContentsMargins(margin, margin, margin, margin)
         self._fade_pixmap = None
         self._fade_key = None
+        self._sync_halo()
         self.update()
+
+    def _sync_halo(self):
+        """毛玻璃时把羽化那一圈交给光环窗口。
+
+        容器铺满窗口后窗口里没有画羽化的地方(`paintEvent` 直接跳过),羽化必须
+        落在窗口外面,所以用一个比窗口四周各宽 PANEL_MARGIN 的透明附属窗口去画。
+        窗口不可见时一律收起,免得窗口藏起来了光环还留在屏幕上。
+        """
+        if self._panel_margin > 0 or not self.isVisible():
+            self._halo.hide()
+            return
+        self._halo.set_theme(self.theme)
+        self._halo.follow(self.frameGeometry(), PANEL_MARGIN)
+        if not self._halo.isVisible():
+            self._halo.show()
+
+    def moveEvent(self, event):
+        """拖动/被系统挪动时,光环必须同一轮就跟过去(晚一拍就成了拖影)。"""
+        super().moveEvent(event)
+        self._sync_halo()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._sync_halo()
 
     def _apply_blur_behind(self):
         """按设置开关窗口背后的模糊(真·毛玻璃)。
@@ -1845,11 +1858,15 @@ class MainWindow(QWidget):
         (bg_opacity 压到 0 里面照样糊)。所以唯一能做的是让可见背景去对齐它:
         开毛玻璃时容器铺满窗口(边距 8 → 0),糊区与面板外接矩形逐像素重合,
         圆角照常保留 —— 四个角各剩约 14 平方像素的残糊,透明度拉满时能看见,
-        但比"内缩 8px"那种整圈大一圈小得多。关掉毛玻璃要复原 8px 边距和
-        边缘羽化(羽化整圈都画在窗口外,paintEvent 里 _panel_margin <= 0 跳过)。
+        但比"内缩 8px"那种整圈大一圈小得多。**羽化不能再退让**:它本来画在
+        窗口外圈,容器铺满后就没了落脚处,所以改由附属窗口 `edge_halo.EdgeHalo`
+        去画(它比窗口四周各宽 8px,只画那圈环带、中间全透明、不吃鼠标),
+        `_sync_halo()` 负责跟着窗口走。关掉毛玻璃要复原 8px 边距和窗口内自绘的
+        那一圈羽化(`paintEvent` 里 `_panel_margin <= 0` 跳过)。
         """
         enabled = bool(self.settings.blur_behind)
         self._set_panel_margin(0 if enabled else PANEL_MARGIN)
+        self._sync_halo()
         if not self.isVisible():
             return False
         return apply_to_widget(self, enabled)
@@ -2112,6 +2129,7 @@ class MainWindow(QWidget):
         if "bottom" in d:
             h = max(MIN_H, h + dy)
         self.setGeometry(x, y, w, h)
+        self._sync_halo()  # 缩放时光环跟着变,别等 moveEvent/resizeEvent
 
     def closeEvent(self, event):
         """主窗口关闭时同步关闭独立设置窗口并清理全局光标。"""
@@ -2157,6 +2175,7 @@ class MainWindow(QWidget):
             return
         if self._drag_pos is not None and (event.buttons() & Qt.LeftButton):
             self.move(event.globalPosition().toPoint() - self._drag_pos)
+            self._sync_halo()  # 同一轮就搬,晚一个事件循环光环会落在卡片后面
             event.accept()
             return
         # 无按键:按是否在边缘更新光标
