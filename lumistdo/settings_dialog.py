@@ -22,20 +22,38 @@ from PySide6.QtGui import (
 )
 
 from . import dialogs
-from .app_settings import AppSettings, MAX_TITLE_LENGTH, MIN_BG_OPACITY
-from .i18n import LANG_EN, LANG_ZH, product_name, set_language, t
+from .app_settings import (
+    AppSettings, CUSTOM_PRESET, DEFAULT_PRESET, MAX_TITLE_LENGTH, MIN_BG_OPACITY,
+    Theme, container_qss,
+)
+from .floating_window import (
+    CONTAINER_RADIUS, OUTER_MARGIN, CloseButton, custom_preset_glyph,
+    make_color_btn, paint_color_btn, paint_edge_fade,
+)
+from .i18n import (
+    LANG_EN, LANG_ZH, preset_name, product_name, set_language, t,
+)
 from .restart import restart_app
 
-# 设置窗口的外边距:留出羽化区域,与主界面一致
-OUTER_MARGIN = 8
-CONTAINER_RADIUS = 8.0
-# 内容区宽度:底部三个按钮(保存预设/恢复默认/查看历史)要放得下,
-# 300px 会把「保存为自定义预设」挤成省略号,这里留足 340px
+# 设置窗口的内容区宽度:底部三个按钮(编辑快捷键/恢复默认/查看历史任务)
+# 要放得下,300px 会把文字挤成省略号,这里留足 340px
 CONTENT_WIDTH = 340
 
+
+def pick_color(initial: QColor, title: str, parent=None) -> QColor:
+    """弹系统非原生取色器,返回选中的颜色;取消时返回无效 QColor。
+
+    非原生(不走 Windows 自带对话框)才能沿用 Qt 的自定义色板,
+    也才能跟着应用的中文字体与深色配色。
+    """
+    dialog = QColorDialog(initial, parent)
+    dialog.setWindowTitle(title)
+    dialog.setOption(QColorDialog.DontUseNativeDialog, True)
+    accepted = dialog.exec()
+    return dialog.selectedColor() if accepted else QColor()
+
 WINDOW_QSS = """
-QLabel { color: #c8c8d2; }
-QLabel#sectionTitle {
+QLabel { color: #c8c8d2; }QLabel#sectionTitle {
     color: #9a9aa5;
     font-weight: 700;
     letter-spacing: 1.5px;
@@ -154,11 +172,14 @@ QLineEdit:focus {
 }
 """
 
-# 预设主题:每套包含 bg_color, text_color, font_family, font_size, bg_opacity
+# 预设主题:每套包含 bg_color, text_color, font_family, font_size, bg_opacity。
+# name 同时是持久化用的标识(settings.appearance_preset),不要跟着界面语言改。
 PRESETS = [
     {"name": "深空",   "bg": "#25262c", "text": "#e9e9ef", "font": "Segoe UI Variable", "size": 13, "opacity": 240},
     {"name": "暖夜",   "bg": "#2c2420", "text": "#f0e6dc", "font": "Microsoft YaHei UI", "size": 13, "opacity": 235},
-    {"name": "森林",   "bg": "#1e2a22", "text": "#e4f0e8", "font": "Microsoft YaHei UI", "size": 13, "opacity": 238},
+    # 毛玻璃:背景透明度压到 ~69%(176/255),壁纸隐约透出来才有玻璃感;
+    # 上浅下深的层次由 Theme 派生的渐变两端提供(见 app_settings.container_qss)
+    {"name": "毛玻璃", "bg": "#333a47", "text": "#f2f4f8", "font": "Segoe UI Variable", "size": 13, "opacity": 176},
     {"name": "海洋",   "bg": "#1a2432", "text": "#dce8f4", "font": "Segoe UI Variable", "size": 13, "opacity": 240},
     {"name": "薰衣草", "bg": "#282430", "text": "#ece6f4", "font": "Microsoft YaHei UI", "size": 13, "opacity": 236},
     {"name": "素白",   "bg": "#f2f2f4", "text": "#2c2c32", "font": "Microsoft YaHei UI", "size": 13, "opacity": 248},
@@ -234,52 +255,6 @@ def _polar(center, radius, angle_deg):
     )
 
 
-class ResetButton(QWidget):
-    """自绘「恢复默认设置」图标按钮(圆形箭头,风格与其他图标按钮一致)。"""
-
-    clicked = Signal()
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFixedSize(30, 30)
-        self.setCursor(QCursor(Qt.PointingHandCursor))
-        self.setToolTip(t("settings.reset_btn"))
-        self._hover = False
-        self._ink = QColor("#c8c8d2")
-
-    def set_theme(self, theme):
-        """跟随主题取图标颜色(与其他图标按钮同一套接口)。"""
-        self._ink = QColor(theme.text_color)
-        self.update()
-
-    def enterEvent(self, event):
-        self._hover = True
-        self.update()
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        self._hover = False
-        self.update()
-        super().leaveEvent(event)
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.clicked.emit()
-            event.accept()
-            return
-        super().mousePressEvent(event)
-
-    def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor(255, 255, 255, 18) if self._hover else QColor(255, 255, 255, 7))
-        p.drawRoundedRect(QRectF(0.0, 0.0, 30.0, 30.0), 7.0, 7.0)
-        color = self._ink.lighter(120) if self._hover else self._ink
-        p.drawPixmap(0, 0, reset_glyph(30, color))
-        p.end()
-
-
 class SettingsHeader(QWidget):
     """设置窗口顶部条:标题 + 自绘关闭按钮,空白处可拖动整个窗口。"""
 
@@ -347,52 +322,231 @@ class SettingsHeader(QWidget):
         super().mouseReleaseEvent(event)
 
 
-class CloseButton(QWidget):
-    """自绘关闭按钮(替代系统标题栏的 ×)。"""
+class CustomColorHeader(QWidget):
+    """自定义配色窗口顶部条:标题 + 自绘关闭按钮,空白处可拖动窗口。"""
 
-    clicked = Signal()
-
-    def __init__(self, parent=None):
+    def __init__(self, window, parent=None):
         super().__init__(parent)
-        self.setFixedSize(24, 24)
-        self.setCursor(QCursor(Qt.PointingHandCursor))
-        self.setToolTip(t("settings.close"))
-        self._hover = False
+        self._window = window
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(7)
+        self.setFixedHeight(26)
 
-    def enterEvent(self, event):
-        self._hover = True
-        self.update()
-        super().enterEvent(event)
+        self.title_label = QLabel(t("custom.title"))
+        self.title_label.setObjectName("windowTitle")
+        self.title_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        row.addWidget(self.title_label, 1)
+        self.close_btn = CloseButton(self)
+        row.addWidget(self.close_btn)
 
-    def leaveEvent(self, event):
-        self._hover = False
-        self.update()
-        super().leaveEvent(event)
+        self._drag_offset = None
+
+    def _elide_title(self):
+        width = self.title_label.width()
+        if width <= 0:
+            return
+        metrics = QFontMetrics(self.title_label.font())
+        self.title_label.setText(
+            metrics.elidedText(t("custom.title").upper(), Qt.ElideRight, width),
+        )
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._elide_title()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.clicked.emit()
+            self._drag_offset = (
+                event.globalPosition().toPoint()
+                - self._window.frameGeometry().topLeft()
+            )
             event.accept()
             return
         super().mousePressEvent(event)
 
+    def mouseMoveEvent(self, event):
+        if self._drag_offset is not None and (event.buttons() & Qt.LeftButton):
+            self._window.move(event.globalPosition().toPoint() - self._drag_offset)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_offset = None
+        super().mouseReleaseEvent(event)
+
+
+class CustomColorWindow(QWidget):
+    """自定义配色窗口:单独调背景色与字体颜色(与设置窗口同一套自绘外观)。
+
+    改色即写进 settings 并发 changed,主窗口与设置窗口实时跟随。
+    只暴露两个颜色,因为「毛玻璃」那种层次感来自派生色,不靠用户手调。
+    """
+
+    changed = Signal(QColor, QColor)   # (背景色, 字体颜色)
+
+    def __init__(self, settings: AppSettings, parent=None):
+        super().__init__(parent)
+        set_language(settings.language)
+        self._settings = settings
+        self.setWindowFlags(
+            Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint,
+        )
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setWindowTitle(f"{product_name()} - {t('custom.title')}")
+        self.setStyleSheet(WINDOW_QSS)
+        self.setFixedWidth(CONTENT_WIDTH + OUTER_MARGIN * 2)
+        self._fade_pixmap = None
+        self._fade_key = None
+        self._build_ui()
+        self.apply_theme()
+
+    def _build_ui(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(
+            OUTER_MARGIN, OUTER_MARGIN, OUTER_MARGIN, OUTER_MARGIN,
+        )
+        self.container = QFrame()
+        self.container.setObjectName("settingsContainer")
+        outer.addWidget(self.container)
+
+        root = QVBoxLayout(self.container)
+        root.setContentsMargins(20, 8, 20, 16)
+        root.setSpacing(10)
+
+        self.header = CustomColorHeader(self)
+        self.header.close_btn.clicked.connect(self.close)
+        root.addWidget(self.header)
+
+        hint = QLabel(t("custom.hint"))
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #8a8a94;")
+        root.addWidget(hint)
+
+        self._bg_btn = make_color_btn(QColor(self._settings.bg_color))
+        root.addWidget(self._row(t("custom.bg"), self._bg_btn, self._pick_bg))
+
+        self._txt_btn = make_color_btn(QColor(self._settings.text_color))
+        root.addWidget(self._row(t("custom.text"), self._txt_btn, self._pick_text))
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        reset_btn = QPushButton()
+        reset_btn.setObjectName("actionBtn")
+        reset_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        reset_btn.setToolTip(t("custom.reset_btn"))
+        reset_btn.setAccessibleName(t("custom.reset_btn"))
+        reset_btn.setIconSize(QSize(16, 16))
+        reset_btn.clicked.connect(self.restore_defaults)
+        self.reset_btn = reset_btn
+        btn_row.addWidget(reset_btn, 1)
+        confirm_btn = QPushButton(t("custom.confirm"))
+        confirm_btn.setObjectName("actionBtn")
+        confirm_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        confirm_btn.clicked.connect(self.close)
+        btn_row.addWidget(confirm_btn, 1)
+        root.addLayout(btn_row)
+
+    def _row(self, label_text, btn, slot):
+        """一行:标签在上、色块在下(与设置窗口的颜色行同一版式)。"""
+        col = QVBoxLayout()
+        col.setSpacing(6)
+        lbl = QLabel(label_text)
+        lbl.setStyleSheet("color: #8a8a94;")
+        lbl.setFixedHeight(18)
+        col.addWidget(lbl)
+        btn.clicked.connect(slot)
+        col.addWidget(btn)
+        wrap = QWidget()
+        wrap.setLayout(col)
+        return wrap
+
+    # ---- 改色 ----
+    def _pick_bg(self):
+        color = pick_color(QColor(self._settings.bg_color), t("custom.pick_bg"), self)
+        if color.isValid():
+            self._settings.bg_color = color.name()
+            paint_color_btn(self._bg_btn, color)
+            self._emit()
+
+    def _pick_text(self):
+        color = pick_color(
+            QColor(self._settings.text_color), t("custom.pick_text"), self,
+        )
+        if color.isValid():
+            self._settings.text_color = color.name()
+            paint_color_btn(self._txt_btn, color)
+            self._emit()
+
+    def restore_defaults(self):
+        """恢复出厂配色:回到默认预设(深空)的颜色。"""
+        defaults = AppSettings()
+        self._settings.bg_color = defaults.bg_color
+        self._settings.text_color = defaults.text_color
+        self._settings.appearance_preset = DEFAULT_PRESET
+        self.refresh()
+        self._emit()
+
+    def refresh(self):
+        """把 settings 里的颜色重新画到色块上(外观被别处改动时调用)。"""
+        bg = QColor(self._settings.bg_color)
+        text = QColor(self._settings.text_color)
+        paint_color_btn(self._bg_btn, bg)
+        paint_color_btn(self._txt_btn, text)
+        self.reset_btn.setIcon(QIcon(reset_glyph(16, text)))
+        self._fade_pixmap = None
+        self._fade_key = None
+        self.update()
+
+    def _emit(self):
+        self.changed.emit(
+            QColor(self._settings.bg_color), QColor(self._settings.text_color),
+        )
+
+    # ---- 外观:与设置窗口同一套(背景/透明度/字体/羽化) ----
+    def apply_theme(self):
+        theme = self._settings.to_theme()
+        self.container.setStyleSheet(
+            container_qss(theme, "QFrame#settingsContainer", CONTAINER_RADIUS),
+        )
+        self.setFont(QFont(theme.font_family, 10))
+        self.reset_btn.setIcon(QIcon(reset_glyph(16, QColor(theme.text_color))))
+        self._fade_pixmap = None
+        self._fade_key = None
+        self.update()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._fade_pixmap = None
+        self._fade_key = None
+
     def paintEvent(self, event):
+        super().paintEvent(event)
+        if self.width() <= 0 or self.height() <= 0:
+            return
         p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        if self._hover:
-            p.setPen(Qt.NoPen)
-            p.setBrush(QColor(255, 255, 255, 30))
-            p.drawRoundedRect(QRectF(0.0, 0.0, 24.0, 24.0), 6.0, 6.0)
-        color = QColor("#e0e0e8") if self._hover else QColor("#9a9aa5")
-        p.setPen(QPen(color, 1.6, Qt.SolidLine, Qt.RoundCap))
-        p.drawLine(QPoint(9, 9), QPoint(15, 15))
-        p.drawLine(QPoint(15, 9), QPoint(9, 15))
+        p.drawPixmap(0, 0, self._edge_fade_pixmap())
         p.end()
+
+    def _edge_fade_pixmap(self):
+        key = (self.width(), self.height(), id(self._settings))
+        if self._fade_pixmap is not None and self._fade_key == key:
+            return self._fade_pixmap
+        theme = self._settings.to_theme()
+        pm = QPixmap(self.width(), self.height())
+        pm.fill(Qt.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        paint_edge_fade(p, QRectF(self.container.geometry()), theme)
+        p.end()
+        self._fade_pixmap = pm
+        self._fade_key = key
+        return pm
 
 
 class SettingsWindow(QWidget):
     """外观设置独立窗口(非模态,实时预览)。"""
-
     changed = Signal()  # 任何设置变动时发出,主窗口据此实时刷新
     z_order_changed = Signal(bool)       # 置底开关:需即时改窗口层级,单独回传
     position_fixed_changed = Signal(bool)  # 固定开关:同样需即时生效
@@ -419,6 +573,8 @@ class SettingsWindow(QWidget):
         self._settings = settings
         self._fade_pixmap = None
         self._fade_key = None
+        # 自定义配色窗口正在「恢复默认配色」:此时不要把它标记成自定义预设
+        self._restoring_custom = False
         self._build_ui()
         self.apply_theme()
 
@@ -444,11 +600,13 @@ class SettingsWindow(QWidget):
         root.addWidget(self._row_label(t("settings.presets")))
         preset_row = QHBoxLayout()
         preset_row.setSpacing(8)
+        self._preset_btns = {}
         for p in PRESETS:
             btn = QPushButton()
             btn.setFixedSize(28, 28)
             btn.setCursor(QCursor(Qt.PointingHandCursor))
-            btn.setToolTip(p["name"])
+            btn.setToolTip(preset_name(p["name"]))
+            btn.setAccessibleName(preset_name(p["name"]))
             btn.setStyleSheet(
                 f"QPushButton {{"
                 f"  background: {p['bg']};"
@@ -458,11 +616,41 @@ class SettingsWindow(QWidget):
                 f"QPushButton:hover {{"
                 f"  border-color: #5ea0ff;"
                 f"}}"
+                f"QPushButton[selected=\"true\"] {{"
+                f"  border-color: #5ea0ff;"
+                f"}}"
             )
             btn.clicked.connect(lambda checked=False, preset=p: self._apply_preset(preset))
             preset_row.addWidget(btn)
+            self._preset_btns[p["name"]] = btn
+
+        # 最右边的自定义配色入口:同样大小的圆,里面是四色小方块
+        self._custom_btn = QPushButton()
+        self._custom_btn.setFixedSize(28, 28)
+        self._custom_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        self._custom_btn.setToolTip(t("preset.custom_tip"))
+        self._custom_btn.setAccessibleName(t("preset.custom"))
+        self._custom_btn.setIcon(QIcon(custom_preset_glyph(16)))
+        self._custom_btn.setIconSize(QSize(16, 16))
+        self._custom_btn.setStyleSheet(
+            "QPushButton {"
+            "  background: rgba(255,255,255,12);"
+            "  border: 2px dashed rgba(255,255,255,45);"
+            "  border-radius: 14px;"
+            "}"
+            "QPushButton:hover {"
+            "  border-color: #5ea0ff;"
+            "}"
+            "QPushButton[selected=\"true\"] {"
+            "  border-style: solid;"
+            "  border-color: #5ea0ff;"
+            "}"
+        )
+        self._custom_btn.clicked.connect(self.open_custom_colors)
+        preset_row.addWidget(self._custom_btn)
         preset_row.addStretch()
         root.addLayout(preset_row)
+        self._refresh_preset_selection()
 
         # ---- 背景颜色 / 字体颜色(并列两列) ----
         color_row = QHBoxLayout()
@@ -626,12 +814,7 @@ class SettingsWindow(QWidget):
         """重新套用主题(背景色、透明度、字体、边缘羽化)。"""
         theme = self._settings.to_theme()
         self.container.setStyleSheet(
-            f"QFrame#settingsContainer {{"
-            f"  background: rgba({theme.bg_color.red()}, {theme.bg_color.green()},"
-            f" {theme.bg_color.blue()}, {theme.bg_opacity});"
-            f"  border: none;"
-            f"  border-radius: {CONTAINER_RADIUS:g}px;"
-            f"}}"
+            container_qss(theme, "QFrame#settingsContainer", CONTAINER_RADIUS),
         )
         self.setFont(QFont(theme.font_family, 10))
         self._reset_btn.setIcon(QIcon(reset_glyph(16, QColor(theme.text_color))))
@@ -663,31 +846,11 @@ class SettingsWindow(QWidget):
         pm.fill(Qt.transparent)
         p = QPainter(pm)
         p.setRenderHint(QPainter.Antialiasing)
-        self._paint_edge_fade(p, QRectF(self.container.geometry()), theme)
+        paint_edge_fade(p, QRectF(self.container.geometry()), theme)
         p.end()
         self._fade_pixmap = pm
         self._fade_key = key
         return pm
-
-    def _paint_edge_fade(self, p, cr, theme):
-        """容器边缘向外逐渐虚化:多层同心圆角矩形的环带,越外 alpha 越低。"""
-        radius = CONTAINER_RADIUS
-        fade = 7.0       # 虚化区域宽度(略小于 8px 外边距)
-        layers = 14
-        base = theme.edge_fade_color
-        # 羽化强度随背景透明度等比缩放:低透明度时不再残留一圈可见薄雾
-        fade_strength = theme.bg_opacity / 255.0
-        p.setPen(Qt.NoPen)
-        for i in range(layers, 0, -1):
-            grow = fade * i / layers
-            alpha = int(26 * fade_strength * (1.0 - (i - 1) / layers))
-            if alpha <= 0:
-                continue
-            p.setBrush(QColor(base.red(), base.green(), base.blue(), alpha))
-            p.drawRoundedRect(
-                cr.adjusted(-grow, -grow, grow, grow), radius + grow, radius + grow,
-            )
-        # 环带之外不再有任何绘制:容器内部保持原样(透明度与设置值一致)
 
     # ---- 窗口层级(三选一,回传主窗口即时改层级)与固定 ----
     def _on_layer_selected(self, name, checked):
@@ -788,6 +951,8 @@ class SettingsWindow(QWidget):
         s.position_fixed = defaults.position_fixed
         s.compact_mode = defaults.compact_mode
         s.hide_from_taskbar = defaults.hide_from_taskbar
+        # 预设高亮一并回到默认「深空」,否则色块变了高亮还停在自定义上
+        s.appearance_preset = defaults.appearance_preset
 
         # 控件同步(全部 blockSignals,避免中途触发一串 changed)
         self._bg_color = QColor(s.bg_color)
@@ -809,6 +974,8 @@ class SettingsWindow(QWidget):
                 widget.setValue(value)
             widget.blockSignals(False)
         self._op_label.setText(f"{int(s.bg_opacity / 255 * 100)}%")
+        self._refresh_preset_selection()
+        self.refresh_custom_colors()
         self.set_z_order_checks("normal", False)
         self.set_taskbar_check(False)
         self.title_changed.emit(s.title_text)
@@ -887,21 +1054,10 @@ class SettingsWindow(QWidget):
         return lbl
 
     def _make_color_btn(self, color: QColor) -> QPushButton:
-        btn = QPushButton()
-        btn.setObjectName("colorBtn")
-        btn.setCursor(QCursor(Qt.PointingHandCursor))
-        self._paint_color_btn(btn, color)
-        return btn
+        return make_color_btn(color)
 
     def _paint_color_btn(self, btn: QPushButton, color: QColor):
-        btn.setStyleSheet(
-            f"QPushButton#colorBtn {{"
-            f"  background: {color.name()};"
-            f"  border: 1px solid rgba(255,255,255,30);"
-            f"  border-radius: 6px;"
-            f"  min-width: 60px; min-height: 26px;"
-            f"}}"
-        )
+        paint_color_btn(btn, color)
 
     def _emit_changed(self):
         """将当前 UI 状态写回 settings 并通知主窗口刷新。"""
@@ -921,6 +1077,7 @@ class SettingsWindow(QWidget):
         if color.isValid():
             self._bg_color = color
             self._paint_color_btn(self._bg_btn, color)
+            self._mark_custom_preset()
             self._emit_changed()
         else:
             self.changed.emit()
@@ -932,6 +1089,7 @@ class SettingsWindow(QWidget):
         if color.isValid():
             self._txt_color = color
             self._paint_color_btn(self._txt_btn, color)
+            self._mark_custom_preset()
             self._emit_changed()
         else:
             self.changed.emit()
@@ -975,7 +1133,91 @@ class SettingsWindow(QWidget):
         self._size_spin.blockSignals(False)
         self._op_slider.blockSignals(False)
         self._op_label.setText(f"{int(preset['opacity'] / 255 * 100)}%")
+        self._settings.appearance_preset = preset["name"]
+        self._refresh_preset_selection()
+        self.refresh_custom_colors()
         self._emit_changed()
+
+    def _refresh_preset_selection(self):
+        """把当前预设对应的圆点亮(自定义配色时亮最右边那个虚线圆)。"""
+        current = self._settings.appearance_preset
+        for name, btn in self._preset_btns.items():
+            self._set_selected(btn, name == current)
+        self._set_selected(self._custom_btn, current == CUSTOM_PRESET)
+
+    @staticmethod
+    def _set_selected(btn, selected):
+        """动态属性驱动 QSS 高亮;值没变时不动,避免多余的样式重算。"""
+        key = "true" if selected else "false"
+        if btn.property("selected") == key:
+            return
+        btn.setProperty("selected", key)
+        btn.style().unpolish(btn)
+        btn.style().polish(btn)
+
+    def _mark_custom_preset(self):
+        """手改了背景/字体颜色 → 外观不再等于任何预设。"""
+        if self._settings.appearance_preset != CUSTOM_PRESET:
+            self._settings.appearance_preset = CUSTOM_PRESET
+            self._refresh_preset_selection()
+
+    # ---- 自定义配色窗口 ----
+    def open_custom_colors(self):
+        """打开自定义配色窗口(非模态,实时生效)。"""
+        win = getattr(self, "_custom_win", None)
+        if win is None:
+            win = CustomColorWindow(self._settings, parent=self)
+            win.changed.connect(self._on_custom_colors_changed)
+            # 「恢复默认配色」要顺带把预设高亮还原,所以改走设置窗口这条路径
+            win.reset_btn.clicked.disconnect()
+            win.reset_btn.clicked.connect(self._restore_custom_preset)
+            self._custom_win = win
+        else:
+            win.refresh()
+        win.move(
+            self.x() + max(0, (self.width() - win.width()) // 2),
+            self.y() + max(0, (self.height() - win.height()) // 2),
+        )
+        win.show()
+        win.raise_()
+        win.activateWindow()
+
+    def refresh_custom_colors(self):
+        """外观被别处改动(换预设/恢复默认)后,把自定义配色窗口的色块同步过来。"""
+        win = getattr(self, "_custom_win", None)
+        if win is not None and win.isVisible():
+            win.refresh()
+
+    def _on_custom_colors_changed(self, bg: QColor, text: QColor):
+        """自定义配色窗口改色:同步色块与预设高亮(设置已在那边写好)。
+
+        「恢复默认配色」时不要标记成自定义——那一下恰好是回到默认预设,
+        标记会让高亮与刚恢复的颜色对不上(用 _restoring_custom 短路)。
+        """
+        self._paint_color_btn(self._bg_btn, bg)
+        self._paint_color_btn(self._txt_btn, text)
+        if self._restoring_custom:
+            self._refresh_preset_selection()
+        else:
+            self._mark_custom_preset()
+        self.changed.emit()
+
+    def _restore_custom_preset(self):
+        """自定义配色窗口里的「恢复默认配色」:把颜色与预设高亮一起还原。
+
+        必须从这里走:窗口只管把颜色发回来,「回到默认预设」这层语义
+        只有设置窗口知道(见 _on_custom_colors_changed 里的短路说明)。
+        """
+        win = getattr(self, "_custom_win", None)
+        if win is None:
+            return
+        self._restoring_custom = True
+        try:
+            win.restore_defaults()
+        finally:
+            self._restoring_custom = False
+        self._refresh_preset_selection()
+        self.changed.emit()
 
     def _restore_custom_colors(self):
         for index, color in enumerate(self._settings.custom_colors):
@@ -983,13 +1225,10 @@ class SettingsWindow(QWidget):
                 QColorDialog.setCustomColor(index, QColor(color))
 
     def _show_color_dialog(self, initial, title):
-        self._restore_custom_colors()
-        dialog = QColorDialog(initial, self)
-        dialog.setWindowTitle(title)
-        dialog.setOption(QColorDialog.DontUseNativeDialog, True)
-        accepted = dialog.exec()
-        self._remember_custom_colors()
-        return dialog.selectedColor() if accepted else QColor()
+        color = pick_color(initial, title, self)
+        if color.isValid():
+            self._remember_custom_colors()
+        return color
 
     def _remember_custom_colors(self):
         self._settings.custom_colors = [

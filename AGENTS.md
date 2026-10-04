@@ -11,7 +11,7 @@
 - 点任务左侧小圆点 → 任务从桌面消失并标记完成 → 进入底部「已完成」栏
 - 已完成栏可展开，点圆点把任务恢复回主列表
 - 删除任务进入历史任务，可批量恢复或永久删除
-- 外观可自定义（预设/颜色/字体/字号/透明度/顶部栏文字）
+- 外观可自定义（6 套预设 + 独立的「自定义配色」窗口：单独调背景色/字体颜色）
 - 顶部栏三按钮：图钉（层级三态）→ 固定窗口位置 → 缩略模式
 - 快捷键可改键（`Ctrl+N` 新建固定不可改，其余三项在快捷键窗口里改）
 - 可选：不在任务栏显示图标（用托盘图标找回窗口）、开机自启动
@@ -56,8 +56,9 @@ LumistDo-src/
 │   ├── task_item.py         # UI：单条任务（圆点 + 编辑框，高度自适应）
 │   ├── completed_panel.py   # UI：已完成面板
 │   ├── history_window.py    # UI：历史任务窗口
-│   ├── settings_dialog.py   # UI：设置窗口
+│   ├── settings_dialog.py   # UI：设置窗口 + 自定义配色窗口
 │   ├── keybind_window.py    # UI：编辑快捷键窗口
+│   ├── floating_window.py   # 浮动窗口共享件（羽化边缘/关闭按钮/色块/容器背景）
 │   ├── tray_icon.py         # 托盘图标
 │   ├── autostart.py         # 开机自启动（注册表 Run 项）
 │   ├── single_instance.py   # 单实例锁（QLockFile）
@@ -104,6 +105,8 @@ python -m PyInstaller lumistdo.spec --noconfirm
 - **任务栏图标重登记要推迟**：`_apply_taskbar_style()` 里的 `hide()`+`show()` 若同步执行，会被 `showEvent` 排的同一个回调再触发，把 Qt 的可见性状态搞乱（表现为"窗口再也显示不出来"）。所以走 `QTimer.singleShot(0, self._reregister_for_taskbar)`。
 - **自绘图标按钮要设 `accessibleName`**：否则 UI 自动化/无障碍工具读到空名字，按名字点不到（`_reset_btn` 就踩过）。
 - **数据目录可迁移**：`app_paths.data_dir()` 每次取用都跑一次迁移——先搬早期版本用过的 `%APPDATA%\LumistDo`（新目录已有同名文件则不覆盖，搬完删旧文件），再搬便携版的程序目录内 `.lumistdo`（只复制不删）。迁移失败静默，绝不能挡住启动。
+- **背景用三档垂直渐变**：容器背景由 `app_settings.container_qss()` 统一生成（三个窗口共用）。两档渐变要把色差摊满整个窗口高度，8bit 量化下会出现一条条水平色带，所以用上/中/下三档停靠点把色差压小。
+- **预设是"名字"不是颜色值**：`settings_dialog.PRESETS` 的 `name`（中文原名）同时是持久化标识，界面显示走 `i18n.preset_name()`；`AppSettings.appearance_preset` 只用于设置窗口高亮，不影响渲染。
 - **界面产品名走 `i18n.product_name()`**：中文显示"览明贴"，英文显示"LumistDo"；需要显示软件名的地方（窗口标题、消息框标题、托盘 tooltip）都用它，不要硬编码。
 
 ## 开发约定
@@ -120,7 +123,7 @@ python -m PyInstaller lumistdo.spec --noconfirm
 - GUI 测试在无头环境用 `$env:QT_QPA_PLATFORM="offscreen"`，不弹真实窗口；中文输出建议同时设 `$env:PYTHONIOENCODING="utf-8"` 与 `$env:PYTHONUTF8="1"`。
 - 测试必须给 `MainWindow` 传 `settings_path`（临时目录），否则会去读开发机真实的 `%APPDATA%\LumistDo\settings.json`，结果随本机状态漂移。
 - **不要为了"试探"而运行 Inno Setup 卸载器**：它不弹确认就直接卸载并删除用户数据（本项目历史上真的丢过一次用户任务）。
-- 需要渲染界面截图时可用工作区里的 `lumistdo-dev/preview_ui.py`（不在本仓库内）：`python preview_ui.py zh normal|compact|hidden|keys`。
+- 需要渲染界面截图时可用工作区里的 `lumistdo-dev/preview_ui.py`（不在本仓库内）：`python preview_ui.py zh normal|compact|keys|custom|frost`。
 
 ## AI 工作约定
 

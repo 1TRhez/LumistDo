@@ -70,8 +70,8 @@ from . import autostart
 def build_qss(t: Theme) -> str:
     """根据主题动态生成 QSS。"""
     bg = t.bg_color
-    # 背景用纯色:垂直渐变的色差只有约 22 个灰阶却要铺满整个窗口高度,
-    # 8bit 量化下会出现一条条水平色带,中等透明度时尤其明显。
+    # 背景用垂直渐变(三档停靠点,见 app_settings.container_qss 的说明):
+    # 两档渐变要跨满整个窗口高度,8bit 量化下会出现一条条水平色带。
     op = t.bg_opacity
     sep = t.sep_color
     sb = t.scrollbar_color
@@ -84,7 +84,10 @@ def build_qss(t: Theme) -> str:
 
     return f"""
 QFrame#container {{
-    background: rgba({bg.red()}, {bg.green()}, {bg.blue()}, {op});
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 rgba({t.bg_top_color.red()}, {t.bg_top_color.green()}, {t.bg_top_color.blue()}, {t.bg_top_color.alpha()}),
+        stop:0.45 rgba({bg.red()}, {bg.green()}, {bg.blue()}, {op}),
+        stop:1 rgba({t.bg_bottom_color.red()}, {t.bg_bottom_color.green()}, {t.bg_bottom_color.blue()}, {t.bg_bottom_color.alpha()}));
     border: none;
     border-radius: 8px;
 }}
@@ -1266,10 +1269,12 @@ class MainWindow(QWidget):
     def _on_settings_changed(self):
         """设置变动立即预览，短时间内的连续磁盘写入合并保存。"""
         self.apply_theme()
-        # 设置窗口自绘外观(背景色/透明度/字体),跟着一起刷新
+        # 设置窗口自绘外观(背景色/透明度/字体),跟着一起刷新;
+        # 自定义配色窗口若开着,色块也要同步(从里面改的颜色不用重画,幂等)
         win = getattr(self, "_settings_win", None)
         if win is not None:
             win.apply_theme()
+            win.refresh_custom_colors()
         self._settings_dirty = True
         self._settings_save_timer.start()
 

@@ -18,6 +18,8 @@ from PySide6.QtWidgets import QApplication, QLabel
 
 from lumistdo.main_window import MainWindow, build_qss
 from lumistdo.app_settings import (
+    CUSTOM_PRESET,
+    DEFAULT_PRESET,
     DEFAULT_SHORTCUTS,
     DEFAULT_TITLE_TEXT,
     AppSettings,
@@ -354,8 +356,10 @@ def test_macos_style_header_structure(app):
         # 用临时设置文件:否则会读到本机 %APPDATA% 里的真实设置(标题可能被改过)
         w = MainWindow(store, settings_path=root / "settings.json")
 
-        assert w.header.title_label.text() == "JUST DO IT."
-        assert w.header._raw_title == "JUST DO IT."
+        # 默认标题 = 产品名(标签层转大写、真实内容保持原样),
+        # 取自 DEFAULT_TITLE_TEXT 以免改默认值就挂
+        assert w.header._raw_title == DEFAULT_TITLE_TEXT
+        assert w.header.title_label.text() == DEFAULT_TITLE_TEXT.upper()
         assert w.header.height() == 40
         assert w.header.compact_btn.width() == 28
         assert w._inline_add_btn.height() == 36
@@ -513,6 +517,7 @@ def test_settings_reset_appearance_restores_defaults(app, monkeypatch):
         win._op_slider.setValue(30)
         win._bg_color = QColor("#ff00ff")
         win._emit_changed()
+        win._mark_custom_preset()
         win._layer_radios["top"].setChecked(True)
         win._fixed_check.setChecked(True)
         win._taskbar_check.setChecked(True)
@@ -521,6 +526,7 @@ def test_settings_reset_appearance_restores_defaults(app, monkeypatch):
         app.processEvents()
         assert w.settings.title_text == "乱改的标题"
         assert w.settings.always_on_top is True
+        assert w.settings.appearance_preset == CUSTOM_PRESET
 
         # 恢复默认设置:外观、快捷键与功能开关一起回默认
         defaults = AppSettings()
@@ -545,10 +551,98 @@ def test_settings_reset_appearance_restores_defaults(app, monkeypatch):
         assert w.settings.position_fixed is False
         assert w.settings.compact_mode is False
         assert w.settings.hide_from_taskbar is False
+        # 预设高亮也要回到默认那个(否则色块回到深空、圆点还停在自定义上)
+        assert w.settings.appearance_preset == DEFAULT_PRESET
+        assert win._preset_btns[DEFAULT_PRESET].property("selected") == "true"
+        assert win._custom_btn.property("selected") == "false"
         # 界面状态也一起收掉了:顶栏回来、清单可点
         assert w._compact is False
         assert w._header_opacity == 1.0
         assert w.header.isVisible() is True
+        w.close()
+
+
+def test_preset_row_highlights_current_and_marks_custom(app):
+    """预设行:点哪套主题就亮哪个圆点;手改颜色后亮最右边的自定义入口。"""
+    from lumistdo import settings_dialog
+
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        store = TaskStore(root / "tasks.json")
+        w = MainWindow(store, settings_path=root / "settings.json")
+        w.show()
+        app.processEvents()
+        w.open_settings()
+        app.processEvents()
+        win = w._settings_win
+
+        # 默认亮「深空」
+        assert w.settings.appearance_preset == DEFAULT_PRESET
+        assert win._preset_btns[DEFAULT_PRESET].property("selected") == "true"
+
+        # 森林已删掉,换成毛玻璃
+        assert "森林" not in win._preset_btns
+        assert "毛玻璃" in win._preset_btns
+        preset = next(p for p in settings_dialog.PRESETS if p["name"] == "毛玻璃")
+        win._preset_btns["毛玻璃"].click()
+        app.processEvents()
+        assert w.settings.appearance_preset == "毛玻璃"
+        assert w.settings.bg_color == preset["bg"]
+        assert w.settings.bg_opacity == preset["opacity"], "毛玻璃要真的更透明"
+        assert win._preset_btns["毛玻璃"].property("selected") == "true"
+        assert win._preset_btns[DEFAULT_PRESET].property("selected") == "false"
+
+        # 手动改背景色 → 不再等于任何预设,高亮转到自定义入口
+        win._bg_color = QColor("#123456")
+        win._emit_changed()
+        win._mark_custom_preset()
+        app.processEvents()
+        assert w.settings.appearance_preset == CUSTOM_PRESET
+        assert win._custom_btn.property("selected") == "true"
+        assert win._preset_btns["毛玻璃"].property("selected") == "false"
+        w.close()
+
+
+def test_custom_color_window_edits_colors_and_flags_custom(app):
+    """自定义配色窗口:改色即时写进设置、主窗口与设置窗口色块同步、高亮转自定义。"""
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        store = TaskStore(root / "tasks.json")
+        w = MainWindow(store, settings_path=root / "settings.json")
+        w.show()
+        app.processEvents()
+        w.open_settings()
+        app.processEvents()
+        win = w._settings_win
+
+        win._custom_btn.click()
+        app.processEvents()
+        cw = win._custom_win
+        assert cw is not None and cw.isVisible()
+
+        # 窗口自带一套自绘外观:无边框 + 透明底 + 与设置窗口同宽
+        assert cw.windowFlags() & Qt.FramelessWindowHint
+        assert cw.testAttribute(Qt.WA_TranslucentBackground)
+        assert cw.width() == win.width()
+
+        # 改背景色(不走取色器,直接改色块走同一条回传路径)
+        cw._settings.bg_color = "#204060"
+        cw._emit()
+        app.processEvents()
+        assert w.settings.bg_color == "#204060"
+        assert w.settings.appearance_preset == CUSTOM_PRESET
+        assert win._custom_btn.property("selected") == "true"
+        assert win._bg_btn.property("color") == "#204060", "设置窗口色块没跟上"
+
+        # 窗口里的「恢复默认配色」把颜色与高亮一起还原成默认预设
+        # (点按钮 → 设置窗口接管,而不是窗口自己直接改设置)
+        cw.reset_btn.click()
+        app.processEvents()
+        defaults = AppSettings()
+        assert w.settings.bg_color == defaults.bg_color
+        assert w.settings.text_color == defaults.text_color
+        assert w.settings.appearance_preset == DEFAULT_PRESET
+        assert win._preset_btns[DEFAULT_PRESET].property("selected") == "true"
         w.close()
 
 
@@ -1924,7 +2018,7 @@ def test_header_title_editable_and_upper_cased(app):
         w.show()
         app.processEvents()
 
-        assert w.header._raw_title == "JUST DO IT."
+        assert w.header._raw_title == DEFAULT_TITLE_TEXT
 
         w.open_settings()
         app.processEvents()

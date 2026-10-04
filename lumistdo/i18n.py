@@ -28,6 +28,15 @@ def product_name() -> str:
     return APP_NAME_ZH if _current == LANG_ZH else APP_NAME
 
 
+def preset_name(name: str) -> str:
+    """预设主题的显示名。
+
+    预设是按名字识别并持久化的(settings.appearance_preset),所以存储值
+    始终是中文原名,只有界面显示走翻译表 preset.<名字>。
+    """
+    return t(f"preset.{name}")
+
+
 def t(key: str, **fmt) -> str:
     """按 key 取当前语言文案,可用关键字参数填充占位符。
 
@@ -95,9 +104,27 @@ _TRANSLATIONS = {
         "settings.position_fixed": "固定窗口位置（禁止拖动与缩放）",
         "settings.hide_from_taskbar": "不在任务栏显示图标（用托盘图标找回）",
         # ---- 顶部栏标题 ----
-        "main.title_default": "JUST DO IT.",
+        "main.title_default": "LumistDo",
         "settings.title_text": "顶部栏文字",
         "settings.title_placeholder": "留空则不显示文字",
+        # ---- 预设主题 ----
+        "preset.深空": "深空",
+        "preset.暖夜": "暖夜",
+        "preset.毛玻璃": "毛玻璃",
+        "preset.海洋": "海洋",
+        "preset.薰衣草": "薰衣草",
+        "preset.素白": "素白",
+        "preset.custom": "自定义配色",
+        "preset.custom_tip": "自定义配色:自己挑背景与字体颜色",
+        # ---- 自定义配色窗口 ----
+        "custom.title": "自定义配色",
+        "custom.hint": "调好即时生效，设置窗口会同步显示。",
+        "custom.bg": "背景颜色",
+        "custom.text": "字体颜色",
+        "custom.reset_btn": "恢复默认配色",
+        "custom.confirm": "确认",
+        "custom.pick_bg": "选择背景颜色",
+        "custom.pick_text": "选择字体颜色",
         "settings.autostart": "开机自启动",
         "settings.autostart_failed": "写入开机自启动失败,请检查系统权限",
         # ---- 系统托盘 ----
@@ -174,9 +201,27 @@ _TRANSLATIONS = {
         "settings.position_fixed": "Fix window position (no drag or resize)",
         "settings.hide_from_taskbar": "Hide from taskbar (use tray icon to restore)",
         # ---- Header title ----
-        "main.title_default": "JUST DO IT.",
+        "main.title_default": "LumistDo",
         "settings.title_text": "Header text",
         "settings.title_placeholder": "Leave empty for no text",
+        # ---- Preset themes ----
+        "preset.深空": "Deep Space",
+        "preset.暖夜": "Warm Night",
+        "preset.毛玻璃": "Frosted Glass",
+        "preset.海洋": "Ocean",
+        "preset.薰衣草": "Lavender",
+        "preset.素白": "Plain White",
+        "preset.custom": "Custom colors",
+        "preset.custom_tip": "Custom colors: pick your own background and text color",
+        # ---- Custom colors window ----
+        "custom.title": "Custom colors",
+        "custom.hint": "Changes apply right away; the settings window follows.",
+        "custom.bg": "Background color",
+        "custom.text": "Text color",
+        "custom.reset_btn": "Restore default colors",
+        "custom.confirm": "Confirm",
+        "custom.pick_bg": "Pick background color",
+        "custom.pick_text": "Pick text color",
         "settings.autostart": "Start with Windows",
         "settings.autostart_failed": "Could not write the autostart entry (check permissions)",
         # ---- System tray ----

@@ -16,7 +16,10 @@ from .json_io import atomic_write_text
 
 MIN_BG_OPACITY = 3  # 约 1%（内部透明度范围为 0~255）
 MAX_TITLE_LENGTH = 40  # 顶部栏标题最大长度,再长会顶掉右侧图标按钮
-DEFAULT_TITLE_TEXT = "JUST DO IT."  # 顶部栏默认文字;留空则由用户主动清掉
+DEFAULT_TITLE_TEXT = "LumistDo"  # 顶部栏默认文字;留空则由用户主动清掉
+# 出厂外观预设名(与 settings_dialog.PRESETS 里的 name 对应)与"自定义配色"标记
+DEFAULT_PRESET = "深空"
+CUSTOM_PRESET = "custom"
 
 # 顶部栏三个功能按钮的快捷键动作名
 SHORTCUT_ACTIONS = ("z_order", "fixed", "compact")
@@ -128,6 +131,9 @@ class Theme:
     scrollbar_hover_color: QColor = field(init=False)
     accent_color: QColor = field(init=False)
     edge_fade_color: QColor = field(init=False)
+    # 背景渐变两端(毛玻璃质感):上端被"打亮"、下端略沉,alpha 与 bg_opacity 一致
+    bg_top_color: QColor = field(init=False)
+    bg_bottom_color: QColor = field(init=False)
     is_dark: bool = field(init=False)
 
     def __post_init__(self):
@@ -137,6 +143,16 @@ class Theme:
         bg = self.bg_color
         lum = _luminance(bg)
         self.is_dark = lum < 128
+
+        # 渐变两端:只做很小的色差。跨满窗口高度时 8bit 量化会出水平色带,
+        # 所以亮度差控制在 ~20 个灰阶以内,再靠 render 时的抖动掩盖。
+        highlight = QColor(255, 255, 255) if self.is_dark else QColor(0, 0, 0)
+        shade = QColor(0, 0, 0) if self.is_dark else QColor(255, 255, 255)
+        top = _mix(bg, highlight, 26)
+        bottom = _mix(bg, shade, 26)
+        op = self.bg_opacity
+        self.bg_top_color = QColor(top.red(), top.green(), top.blue(), op)
+        self.bg_bottom_color = QColor(bottom.red(), bottom.green(), bottom.blue(), op)
 
         if self.is_dark:
             # 深色背景 → 用白色低透明度做线条/图标/高亮
@@ -162,6 +178,30 @@ class Theme:
             self.edge_fade_color = QColor(bg.red(), bg.green(), bg.blue())
 
 
+def container_qss(theme: Theme, selector: str, radius: float) -> str:
+    """主窗口/设置窗口/快捷键窗口共用的容器背景样式。
+
+    用垂直渐变而不是纯色:上端混一点反差色、下端略沉,做出玻璃面板的厚度感。
+    三档停靠点(0% / 45% / 100%)而不是两档——两档时色差要跨满整个窗口高度,
+    8bit 量化下会看到一条条水平色带。
+    """
+    top = theme.bg_top_color
+    mid = theme.bg_color
+    bottom = theme.bg_bottom_color
+    r = radius
+    return (
+        f"{selector} {{"
+        f"  background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
+        f"    stop:0 rgba({top.red()}, {top.green()}, {top.blue()}, {top.alpha()}),"
+        f"    stop:0.45 rgba({mid.red()}, {mid.green()}, {mid.blue()}, {theme.bg_opacity}),"
+        f"    stop:1 rgba({bottom.red()}, {bottom.green()}, {bottom.blue()},"
+        f" {bottom.alpha()}));"
+        f"  border: none;"
+        f"  border-radius: {r:g}px;"
+        f"}}"
+    )
+
+
 @dataclass
 class AppSettings:
     """用户设置,持久化到 JSON。默认外观为预设「深空」。"""
@@ -185,6 +225,9 @@ class AppSettings:
     window_width: int | None = None
     window_height: int | None = None
     custom_colors: list[str] = field(default_factory=list)
+    # 当前外观来自哪套预设(PRESETS 里的名字,custom = 自定义配色)。
+    # 只用于设置窗口里高亮选中的预设,不影响渲染。
+    appearance_preset: str = DEFAULT_PRESET
 
     def to_theme(self) -> Theme:
         return Theme(
@@ -252,6 +295,9 @@ class AppSettings:
                 color for color in data["custom_colors"]
                 if isinstance(color, str) and QColor(color).isValid()
             ][:16]
+        preset = data.get("appearance_preset")
+        if isinstance(preset, str) and preset.strip():
+            s.appearance_preset = preset.strip()[:24]
         # 校验颜色合法性
         if not QColor(s.bg_color).isValid():
             s.bg_color = "#25262c"

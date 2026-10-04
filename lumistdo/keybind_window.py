@@ -16,13 +16,15 @@ from PySide6.QtGui import (
     QPixmap, QPolygonF,
 )
 
+from .floating_window import (
+    CONTAINER_RADIUS, OUTER_MARGIN, CloseButton, paint_edge_fade,
+)
+
 from .app_settings import (
-    DEFAULT_SHORTCUTS, SHORTCUT_ACTIONS, normalize_sequence,
+    DEFAULT_SHORTCUTS, SHORTCUT_ACTIONS, container_qss, normalize_sequence,
 )
 from .i18n import product_name, t
 
-OUTER_MARGIN = 8
-CONTAINER_RADIUS = 8.0
 CONTENT_WIDTH = 340
 
 WINDOW_QSS = """
@@ -106,49 +108,6 @@ def reset_glyph(size, color):
     ]))
     p.end()
     return pm
-
-
-class CloseButton(QWidget):
-    """右上角自绘关闭按钮(与设置窗口同一个画法)。"""
-
-    clicked = Signal()
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFixedSize(24, 24)
-        self.setCursor(QCursor(Qt.PointingHandCursor))
-        self.setToolTip(t("settings.close"))
-        self._hover = False
-
-    def enterEvent(self, event):
-        self._hover = True
-        self.update()
-        super().enterEvent(event)
-
-    def leaveEvent(self, event):
-        self._hover = False
-        self.update()
-        super().leaveEvent(event)
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.clicked.emit()
-            event.accept()
-            return
-        super().mousePressEvent(event)
-
-    def paintEvent(self, event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        if self._hover:
-            p.setPen(Qt.NoPen)
-            p.setBrush(QColor(255, 255, 255, 30))
-            p.drawRoundedRect(QRectF(0.0, 0.0, 24.0, 24.0), 6.0, 6.0)
-        pen = QPen(QColor("#c8c8d2"), 1.6, Qt.SolidLine, Qt.RoundCap)
-        p.setPen(pen)
-        p.drawLine(QPoint(9, 9), QPoint(15, 15))
-        p.drawLine(QPoint(15, 9), QPoint(9, 15))
-        p.end()
 
 
 class ShortcutEdit(QLineEdit):
@@ -318,12 +277,7 @@ class KeybindWindow(QWidget):
     def apply_theme(self):
         theme = self._settings.to_theme()
         self.container.setStyleSheet(
-            f"QFrame#settingsContainer {{"
-            f"  background: rgba({theme.bg_color.red()}, {theme.bg_color.green()},"
-            f" {theme.bg_color.blue()}, {theme.bg_opacity});"
-            f"  border: none;"
-            f"  border-radius: {CONTAINER_RADIUS:g}px;"
-            f"}}"
+            container_qss(theme, "QFrame#settingsContainer", CONTAINER_RADIUS),
         )
         self.setFont(QFont(theme.font_family, 10))
         self._reset_btn.setIcon(QIcon(reset_glyph(16, QColor(theme.text_color))))
@@ -345,7 +299,7 @@ class KeybindWindow(QWidget):
         p.end()
 
     def _edge_fade_pixmap(self):
-        """与主界面/设置窗口同一套羽化画法(14 层同心圆角矩形环带)。"""
+        """与主界面/设置窗口同一套羽化画法(见 floating_window.paint_edge_fade)。"""
         key = (self.width(), self.height(), id(self._settings))
         if self._fade_pixmap is not None and self._fade_key == key:
             return self._fade_pixmap
@@ -354,23 +308,7 @@ class KeybindWindow(QWidget):
         pm.fill(Qt.transparent)
         p = QPainter(pm)
         p.setRenderHint(QPainter.Antialiasing)
-        cr = QRectF(self.container.geometry())
-        radius, fade = CONTAINER_RADIUS, 7.0
-        strength = theme.bg_opacity / 255.0
-        layers = 14
-        for i in range(layers, 0, -1):
-            grow = fade * i / layers
-            alpha = int(255 * (1.0 - i / layers) ** 2 * strength)
-            if alpha <= 0:
-                continue
-            p.setPen(Qt.NoPen)
-            p.setBrush(QColor(
-                theme.bg_color.red(), theme.bg_color.green(),
-                theme.bg_color.blue(), alpha,
-            ))
-            p.drawRoundedRect(
-                cr.adjusted(-grow, -grow, grow, grow), radius + grow, radius + grow,
-            )
+        paint_edge_fade(p, QRectF(self.container.geometry()), theme)
         p.end()
         self._fade_pixmap = pm
         self._fade_key = key
