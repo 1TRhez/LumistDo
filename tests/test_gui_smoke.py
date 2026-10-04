@@ -44,6 +44,22 @@ def _window_level_shortcuts(monkeypatch):
     monkeypatch.setattr(global_hotkeys, "supported", lambda: False)
 
 
+@pytest.fixture(autouse=True)
+def _tray_available(monkeypatch):
+    """默认假装系统托盘可用 —— 真机上它就是可用的。
+
+    MainWindow 有一条安全兜底:托盘拿不到时**不许**关掉任务栏图标,
+    否则两个入口一起没,窗口就再也找不回来了。offscreen 下
+    `QSystemTrayIcon.isSystemTrayAvailable()` 恒为假,会让"关掉任务栏图标"
+    这类动作被兜底改写、相关断言全部失效,所以这里默认放行;
+    兜底路径单独由 test_tray_unavailable_keeps_taskbar_icon 覆盖。
+    """
+    monkeypatch.setattr(
+        "lumistdo.tray_icon.QSystemTrayIcon.isSystemTrayAvailable",
+        staticmethod(lambda: True),
+    )
+
+
 @pytest.fixture
 def app():
     return QApplication.instance() or QApplication(sys.argv)
@@ -2038,6 +2054,39 @@ def test_taskbar_icon_toggle_sets_toolwindow_without_appwindow(app, monkeypatch)
     ]
     assert len(style_calls) >= 2, f"改样式后没调 SetWindowPos: {style_calls}"
     assert visible_after_on and visible_after_off, "重新登记任务栏按钮后窗口没显示回来"
+
+
+def test_tray_unavailable_keeps_taskbar_icon(app, monkeypatch):
+    """系统没有托盘时**不许**关掉任务栏图标,否则窗口两个入口都没了。
+
+    兜底逻辑在 MainWindow.__init__ 与 set_show_in_taskbar 里:托盘不可用时
+    `TrayIcon.set_visible` 返回 False,这时候如果把任务栏图标也关了,
+    用户就再也找不到窗口 —— 只能去任务管理器杀进程。
+    """
+    monkeypatch.setattr(
+        "lumistdo.tray_icon.QSystemTrayIcon.isSystemTrayAvailable",
+        staticmethod(lambda: False),
+    )
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        store = TaskStore(root / "tasks.json")
+        w = MainWindow(store, settings_path=root / "settings.json")
+        w.show()
+        app.processEvents()
+
+        assert w.settings.show_in_taskbar is True, "没有托盘就该老实待在任务栏"
+        assert w._show_in_taskbar is True
+        assert not w._tray.is_visible(), "托盘起不来就不该假装它起来了"
+
+        # 运行中想关掉也必须被挡回来
+        w.set_show_in_taskbar(False)
+        app.processEvents()
+        assert w.settings.show_in_taskbar is True
+        assert w._show_in_taskbar is True
+        win = w.open_settings()
+        app.processEvents()
+        assert w._settings_win._taskbar_check.isChecked() is True, "勾选框得跟上兜底结果"
+        w.close()
 
 
 def test_taskbar_icon_toggle_keeps_window_visible_after_reshow(app):

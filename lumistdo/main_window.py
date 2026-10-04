@@ -625,8 +625,12 @@ class MainWindow(QWidget):
         # 托盘图标:默认就常驻 —— 任务栏那枚图标是选配,关了它托盘是唯一入口
         self._tray = TrayIcon(self)
         self._tray.toggle_requested.connect(self.toggle_visible)
-        if not self.settings.show_in_taskbar:
-            self._tray.set_visible(True)
+        if not self.settings.show_in_taskbar and not self._tray.set_visible(True):
+            # 没有托盘还不在任务栏显示 = 窗口再也找不回来,所以退回任务栏
+            self._show_in_taskbar = True
+            self.settings.show_in_taskbar = True
+            self._settings_dirty = True
+            self._settings_save_timer.start()
 
         # 开机自启动:注册表是真实状态,启动时按设置补齐/纠正(程序被挪过位置也能修正)
         if self.settings.autostart and autostart.current_command() != autostart.startup_command():
@@ -1887,8 +1891,14 @@ class MainWindow(QWidget):
             pass  # C++ 对象已经销毁(比如空任务被清掉)
 
     def set_show_in_taskbar(self, shown):
-        """切换是否在任务栏显示图标;关掉(默认)时常驻托盘图标作为入口。"""
+        """切换是否在任务栏显示图标;关掉(默认)时常驻托盘图标作为入口。
+
+        托盘起不来(系统没托盘/托盘服务没响应)时**不许**关掉任务栏图标:
+        两个入口一起没了,窗口就再也找不回来了。
+        """
         shown = bool(shown)
+        if not shown and self._tray is not None and not self._tray.set_visible(True):
+            shown = True  # 托盘不可用 → 老实留在任务栏
         self.settings.show_in_taskbar = shown
         self._show_in_taskbar = shown
         self._apply_taskbar_style()
