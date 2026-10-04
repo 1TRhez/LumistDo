@@ -20,9 +20,3 @@ Thumbs.db
 build/
 dist/
 release/
-
-# 本地调试脚本与备份（不该进仓库）
-probe_*.py
-restore_tasks.py
-*.bak
-*.orig

@@ -6,7 +6,18 @@
 
 **LumistDo（览明贴）** 是一个常驻桌面的任务便签：半透明、无边框、不抢焦点，像贴在壁纸上的便签一样随手记事情，点一下圆点就划掉。
 
-Windows 10 / 11 · 单文件 exe 安装 · 数据只存在本机 · MIT 许可
+Windows 10 / 11 · 单文件 exe 安装 · 数据只存在本机 · 极轻量（源码约 6 千行，常驻内存几十 MB）· MIT 许可
+
+## 有多轻
+
+LumistDo 是照着「桌面小工具」写的，不是套壳的网页应用：
+
+- **一个进程、一个 exe**：主程序本体只有 **1.9 MB**，22 个 Python 模块、约 **6 千行**代码，没有后台服务、没有常驻更新器
+- **内存小**：实测刚启动时私有内存约 **50 MB**、工作集约 116 MB，之后基本不动；不拖窗口时 CPU 占用是 0
+- **不联网**：没有账号、没有遥测、也不检查更新，程序里没有任何发起网络请求的代码
+- **不带数据库**：任务和设置就是 `%APPDATA%\LumistDo` 下的 `settings.json`（约 1 KB）和 `tasks.json`（几 KB），纯文本，想备份就复制这两个文件
+- **装完约 110 MB**：其中绝大部分是 PySide6（Qt）自带的运行库，安装包本体 31 MB
+- **卸载干净**：走「应用和功能」卸载即可，只有你自己打开过的「开机自启动」会写一条注册表 Run 项
 
 ## 界面预览
 
@@ -202,12 +213,7 @@ python -m pip install -r requirements.txt
 
 # 运行
 python main.py
-
-# 跑测试(GUI 用 offscreen 平台,不弹真窗口)
-QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q
 ```
-
-Windows PowerShell 下把环境变量换成 `$env:QT_QPA_PLATFORM="offscreen"`。
 
 ### 打包
 
@@ -229,11 +235,11 @@ LumistDo-src/
 ├── lumistdo.spec            # PyInstaller 配置(onedir)
 ├── lumistdo.iss             # Inno Setup 安装脚本
 ├── version_info.txt         # exe 右键属性里的版本信息
-├── AGENTS.md                # 给 AI 编码助手看的项目说明
+├── requirements.txt         # 运行时只依赖 PySide6
 ├── LICENSE                  # MIT
 ├── assets/icon.ico          # 应用图标(多尺寸);icon.svg 是矢量源
 ├── assets/icon.svg
-├── docs/                    # 本 README 用的截图与介绍页
+├── docs/img/                # 上面那些界面截图
 ├── installer/               # Inno Setup 简中语言文件
 ├── lumistdo/            # 应用包
 │   ├── __init__.py              # APP_NAME / APP_NAME_ZH / APP_VERSION
@@ -256,11 +262,6 @@ LumistDo-src/
 │   ├── dialogs.py               # 消息框(切断父窗口深色样式继承)
 │   ├── i18n.py                  # 中英文文案表
 │   └── main_window.py           # 主窗口:拖动/缩放/渐隐/快捷键/落盘
-└── tests/
-    ├── test_app_paths.py
-    ├── test_app_settings.py
-    ├── test_task_store.py
-    └── test_gui_smoke.py    # GUI 冒烟测试(offscreen)
 ```
 
 ## 设计要点

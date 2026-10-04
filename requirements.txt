@@ -1,2 +1,1 @@
 PySide6>=6.5
-pytest>=8.0
