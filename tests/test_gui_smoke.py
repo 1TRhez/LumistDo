@@ -1428,6 +1428,12 @@ def test_compact_mode_persists(app):
         # 启动时立刻按持久化状态收起顶栏,不等鼠标移动
         assert reopened._header_opacity == 0.0
         assert reopened._scroll_opacity == 1.0
+        # 而且是"整个缩略模式的样子",不是只把顶栏淡出:行内加号、底部栏、
+        # 任务行的可编辑状态都要跟手动切换缩略模式时一致。
+        assert not reopened._inline_add_btn.isVisible()
+        assert not reopened.footer_bar.isVisible()
+        assert reopened._locked is True
+        assert all(item._locked for item in reopened._active_items.values())
         reopened.close()
         w.close()
 

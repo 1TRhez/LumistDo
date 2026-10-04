@@ -750,8 +750,12 @@ class MainWindow(QWidget):
         self._install_edge_watch(self.container)
         self._edge_watch_ready = True
 
-        # 启动时把持久化的缩略模式立刻生效(不带动画,避免开场闪一下)
+        # 启动时把持久化的缩略模式立刻生效(不带动画,避免开场闪一下)。
+        # 必须走 _apply_compact_visibility():只 _refresh_chrome() 的话顶栏是淡出了,
+        # 但行内加号、底部「已完成 N」那条和任务行的锁定状态都还留在普通模式,
+        # 于是"上次关在缩略模式、这次启动"看到的是一半缩略一半普通。
         if self._compact:
+            self._apply_compact_visibility()
             self._refresh_chrome(animate=False)
 
     # ---- 边缘缩放:让 container 及子控件把鼠标事件转给窗口做边缘检测 ----
@@ -1333,8 +1337,22 @@ class MainWindow(QWidget):
         if compact == self._compact:
             return
         self._compact = compact
-        self._locked = compact      # 任务行仍按"锁定"处理(禁编辑、禁拖拽排序)
         self.settings.compact_mode = compact
+        self._apply_compact_visibility()
+        # 缩略模式只收起底部栏与加号,窗口大小仍可自由缩放 ——
+        # 只有「固定窗口位置」才禁止拖动与缩放,所以这里不再自动改高度。
+        self._refresh_chrome(animate=animate)
+        self._settings_dirty = True
+        self._settings_save_timer.start()
+        self.update()
+
+    def _apply_compact_visibility(self):
+        """把"缩略模式"该有的外观一次性铺上(启动路径与切换路径共用)。
+
+        只改"看得见什么",不碰动画、不落盘——所以 __init__ 也能直接调。
+        """
+        compact = self._compact
+        self._locked = compact      # 任务行按"锁定"处理:禁编辑、禁拖拽排序
         self.header.compact_btn.set_compact(compact)
         self._inline_add_btn.setVisible(not compact)
         self.footer_bar.setVisible(not compact)
@@ -1349,12 +1367,6 @@ class MainWindow(QWidget):
             self.toggle_completed()      # 缩略模式收起已完成面板
         for item in list(self._active_items.values()):
             item.set_locked(compact)
-        # 缩略模式只收起底部栏与加号,窗口大小仍可自由缩放 ——
-        # 只有「固定窗口位置」才禁止拖动与缩放,所以这里不再自动改高度。
-        self._refresh_chrome(animate=animate)
-        self._settings_dirty = True
-        self._settings_save_timer.start()
-        self.update()
 
     def _compact_height(self):
         """缩略模式下的目标高度:顶栏高度 + 上下留白 + 一行左右的任务区。"""
