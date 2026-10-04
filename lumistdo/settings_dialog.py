@@ -27,8 +27,8 @@ from .app_settings import (
     Theme, container_qss, radio_qss,
 )
 from .floating_window import (
-    CONTAINER_RADIUS, OUTER_MARGIN, CloseButton, custom_preset_glyph,
-    make_color_btn, paint_color_btn, paint_edge_fade,
+    CONTAINER_RADIUS, OUTER_MARGIN, CloseButton, clamp_to_screen,
+    custom_preset_glyph, make_color_btn, paint_color_btn, paint_edge_fade,
 )
 from .i18n import (
     LANG_EN, LANG_ZH, preset_name, product_name, set_language, t,
@@ -830,6 +830,11 @@ class SettingsWindow(QWidget):
         self._fade_pixmap = None
         self._fade_key = None
         self.update()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # 内容长,主窗口靠屏幕下方时会有一截落到屏幕外(底部按钮条点不到)
+        clamp_to_screen(self)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

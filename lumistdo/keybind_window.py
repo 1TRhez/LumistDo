@@ -17,7 +17,8 @@ from PySide6.QtGui import (
 )
 
 from .floating_window import (
-    CONTAINER_RADIUS, OUTER_MARGIN, CloseButton, paint_edge_fade,
+    CONTAINER_RADIUS, OUTER_MARGIN, CloseButton, clamp_to_screen,
+    paint_edge_fade,
 )
 
 from .app_settings import (
@@ -284,6 +285,11 @@ class KeybindWindow(QWidget):
         self._fade_pixmap = None
         self._fade_key = None
         self.update()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # 与设置窗口同样的问题:贴着主窗口居中,主窗口靠下时会落到屏幕外
+        clamp_to_screen(self)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

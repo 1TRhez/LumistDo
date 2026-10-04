@@ -87,6 +87,24 @@ def custom_preset_glyph(size):
     return pm
 
 
+def clamp_to_screen(widget):
+    """把窗口挪回屏幕可用区域,避免底部（按钮条）落在屏幕外点不到。
+
+    设置窗口这类浮动窗口是按"贴着主窗口居中"摆的:主窗口靠屏幕下方时,
+    窗口会有一截跑到屏幕外。内容比屏幕还高时也别切掉顶部——顶栏有拖动热区,
+    放回上边缘至少还能拖。
+    """
+    screen = widget.screen()
+    if screen is None:
+        return
+    area = screen.availableGeometry()
+    size = widget.size()
+    x = min(max(widget.x(), area.left()), max(area.left(), area.right() - size.width() + 1))
+    y = min(max(widget.y(), area.top()), max(area.top(), area.bottom() - size.height() + 1))
+    if (x, y) != (widget.x(), widget.y()):
+        widget.move(x, y)
+
+
 class CloseButton(QWidget):
     """自绘关闭按钮(替代系统标题栏的 ×)。"""
 
