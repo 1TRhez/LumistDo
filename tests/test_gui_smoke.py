@@ -688,12 +688,13 @@ def test_blur_behind_toggle_drives_the_window_effect(app, monkeypatch):
 
 
 def test_frost_flushes_panel_to_window_edges(app, monkeypatch):
-    """开毛玻璃时容器必须铺满窗口,羽化改由附属的光环窗口去画。
+    """容器永远铺满窗口,开关毛玻璃不改变任何尺寸;羽化始终由光环窗口画。
 
-    模糊的是整个窗口矩形(Win10 上裁不住、也圆不了,详见 AGENTS.md),
-    容器内缩多少,糊出来的那块就比可见背景大多少 —— 所以开模糊就把边距压成 0,
-    关掉再收回来(边缘羽化要那圈环带)。羽化必须在窗口外面,窗口里没地方画,
-    于是开模糊时交给 `edge_halo.EdgeHalo`(比窗口四周各宽 8px 的透明附属窗口)。
+    模糊的是整个窗口矩形(Win10 上裁不住、也圆不了,详见 AGENTS.md),卡片比窗口
+    小多少,糊出来的那块就比卡片大多少。以前是"开模糊才把边距压成 0",结果一开关
+    卡片胀出去 8px、羽化从窗口里跳到窗口外 —— 用户看到的就是"开了毛玻璃突然大
+    一圈"。现在卡片 == 窗口矩形是恒定前提,羽化整圈画在窗口外面,交给
+    `edge_halo.EdgeHalo`(比窗口四周各宽 8px 的透明附属窗口)。
     """
     from lumistdo import blur_behind
 
@@ -710,26 +711,31 @@ def test_frost_flushes_panel_to_window_edges(app, monkeypatch):
             m = w.layout().contentsMargins()
             return (m.left(), m.top(), m.right(), m.bottom())
 
+        def halo_geo():
+            return w._halo.geometry()
+
         w.show()
         app.processEvents()
         w.layout().activate()
 
-        assert edge_margins() == (8, 8, 8, 8), "没开毛玻璃时边距该是 8"
-        assert w.container.geometry() == w.rect().adjusted(8, 8, -8, -8)
+        # 关着毛玻璃也一样:卡片铺满窗口、羽化在窗外
+        assert edge_margins() == (0, 0, 0, 0), "容器该始终铺满窗口"
+        assert w.container.geometry() == w.rect()
         assert "border-radius: 8px" in w.container.styleSheet()
-        assert not w._halo.isVisible(), "没开毛玻璃时羽化自己画,光环不该露面"
+        assert w._halo.isVisible(), "羽化该由光环窗口画"
+        off_geo = halo_geo()
+        assert off_geo == w.frameGeometry().adjusted(-8, -8, 8, 8)
 
         w.settings.blur_behind = True
         w._apply_blur_behind()
         app.processEvents()
         w.layout().activate()
-        assert edge_margins() == (0, 0, 0, 0), "开毛玻璃后容器没铺满窗口"
-        assert w.container.geometry() == w.rect(), "容器没和窗口对齐,模糊会比背景大一圈"
-        # 圆角保留:容器铺满窗口后糊区与面板同大,四角只差十来平方像素的残糊
+        # 开关毛玻璃只决定背后糊不糊:卡片、边距、光环一个都不许动
+        assert edge_margins() == (0, 0, 0, 0)
+        assert w.container.geometry() == w.rect()
         assert "border-radius: 8px" in w.container.styleSheet()
-        # 羽化交给光环:它比窗口四周各宽 8px(糊区仍然只在窗口里)
-        assert w._halo.isVisible(), "开毛玻璃后羽化没交给光环窗口"
-        assert w._halo.geometry() == w.frameGeometry().adjusted(-8, -8, 8, 8)
+        assert w._halo.isVisible()
+        assert halo_geo() == off_geo, "开毛玻璃不该让卡片/羽化动一下"
 
         # 挪窗口时光环要同步跟过去(拖动时是同一轮手动调的,这里验 moveEvent)
         w.move(w.x() + 40, w.y() + 25)
@@ -740,10 +746,15 @@ def test_frost_flushes_panel_to_window_edges(app, monkeypatch):
         w._apply_blur_behind()
         app.processEvents()
         w.layout().activate()
-        assert edge_margins() == (8, 8, 8, 8), "关掉毛玻璃后边距没收回"
-        assert w.container.geometry() == w.rect().adjusted(8, 8, -8, -8)
-        assert "border-radius: 8px" in w.container.styleSheet()
-        assert not w._halo.isVisible(), "关掉毛玻璃后光环该收起(羽化回到窗口内自绘)"
+        assert edge_margins() == (0, 0, 0, 0)
+        assert w.container.geometry() == w.rect()
+        assert w._halo.isVisible(), "光环跟毛玻璃无关,不该收起"
+        assert halo_geo() == w.frameGeometry().adjusted(-8, -8, 8, 8)
+
+        # 窗口藏起来时光环必须跟着消失,不能孤零零留在桌面上
+        w.hide()
+        app.processEvents()
+        assert not w._halo.isVisible()
         w.close()
 
 
@@ -1664,8 +1675,8 @@ def test_expanded_panel_shrink_then_collapse_restores(app):
         assert w._panel_lift == 0
 
 
-def test_edge_fade_pixmap_is_cached_until_resize_or_theme_change(app):
-    """羽化位图只在尺寸/主题变化时重建。"""
+def test_halo_pixmap_is_cached_until_resize_or_theme_change(app):
+    """光环的羽化位图只在尺寸/主题变化时重建。"""
     with tempfile.TemporaryDirectory() as d:
         root = Path(d)
         store = TaskStore(root / "tasks.json")
@@ -1674,13 +1685,14 @@ def test_edge_fade_pixmap_is_cached_until_resize_or_theme_change(app):
         w.show()
         app.processEvents()
 
-        pm1 = w._edge_fade_pixmap()
-        pm2 = w._edge_fade_pixmap()
+        halo = w._halo
+        pm1 = halo._halo_pixmap()
+        pm2 = halo._halo_pixmap()
         assert pm1 is pm2
 
         w.resize(310, 400)
         app.processEvents()
-        pm3 = w._edge_fade_pixmap()
+        pm3 = halo._halo_pixmap()
         assert pm3 is not pm1
 
 
